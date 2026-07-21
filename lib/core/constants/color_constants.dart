@@ -51,4 +51,5 @@ class ColorConstants {
   // ——— Overlay ———
   static const Color scrim = Color(0x70101828);
   static const Color transparent = Color(0x00000000);
+  static const Color loginBackground = Color(0xFFF9FAFB);
 }

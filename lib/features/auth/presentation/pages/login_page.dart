@@ -1,0 +1,318 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
+
+import '../../../../app/routes/app_routing_name.dart';
+import '../../../../core/constants/color_constants.dart';
+import '../../../../core/constants/string_constants.dart';
+import '../../../../core/constants/text_style_constants.dart';
+import '../../../../core/utils/app_size.dart';
+import '../../../../core/widgets/common_app_notification_bar.dart';
+import '../../../../core/widgets/common_button_widget.dart';
+import '../bloc/login_bloc.dart';
+import '../bloc/login_event.dart';
+import '../bloc/login_state.dart';
+import '../widgets/otp_entry_dialog.dart';
+
+class LoginPage extends StatelessWidget {
+  const LoginPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocProvider<LoginBloc>(
+      create: (_) => LoginBloc(),
+      child: const _LoginView(),
+    );
+  }
+}
+
+class _LoginView extends StatefulWidget {
+  const _LoginView();
+
+  @override
+  State<_LoginView> createState() => _LoginViewState();
+}
+
+class _LoginViewState extends State<_LoginView> {
+  final TextEditingController _phoneController = TextEditingController();
+  final FocusNode _phoneFocusNode = FocusNode();
+  bool _isOtpFlowActive = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _phoneFocusNode.addListener(_onFocusChanged);
+  }
+
+  void _onFocusChanged() {
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _phoneFocusNode.removeListener(_onFocusChanged);
+    _phoneController.dispose();
+    _phoneFocusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocListener<LoginBloc, LoginState>(
+      listenWhen: (previous, current) =>
+          previous.submissionCount != current.submissionCount,
+      listener: (BuildContext context, LoginState state) async {
+        if (_isOtpFlowActive) return;
+        _isOtpFlowActive = true;
+        try {
+          _phoneFocusNode.unfocus();
+
+          await CommonAppNotificationBar.success(
+            context: context,
+            title: 'OTP sent',
+            message: 'A 6-digit verification code was sent to your phone.',
+            duration: const Duration(milliseconds: 750),
+          );
+
+          if (!context.mounted) return;
+
+          final otp = await showOtpEntryDialog(
+            context: context,
+            phoneNumber: state.phoneNumber,
+          );
+
+          if (!context.mounted) return;
+          if (otp != null && otp.length == 6) {
+            context.go(AppRoutingName.home);
+          }
+        } finally {
+          _isOtpFlowActive = false;
+        }
+      },
+      child: Scaffold(
+        backgroundColor: ColorConstants.loginBackground,
+        body: SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: AppSize.maxContentWidth(context),
+              ),
+              child: Padding(
+                padding: AppSize.insets(
+                  context,
+                  left: 20,
+                  top: 12,
+                  right: 20,
+                  bottom: 22,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    _LoginHero(),
+                    SizedBox(height: AppSize.h(context, 28)),
+                    Text(
+                      'Welcome back !!!',
+                      style: TextStyleConstants.screenTitleLarge.copyWith(
+                        fontSize: AppSize.sp(context, 28),
+                      ),
+                    ),
+                    SizedBox(height: AppSize.h(context, 8)),
+                    // Text(
+                    //   'OTP login — secure and passwordless',
+                    //   style: TextStyleConstants.bodyMedium.copyWith(
+                    //     fontSize: AppSize.sp(context, 14),
+                    //   ),
+                    // ),
+                    SizedBox(height: AppSize.h(context, 16)),
+                    BlocBuilder<LoginBloc, LoginState>(
+                      buildWhen: (previous, current) =>
+                          previous.phoneNumber != current.phoneNumber,
+                      builder: (BuildContext context, LoginState state) {
+                        return AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          height: 48,
+                          decoration: BoxDecoration(
+                            color: ColorConstants.white,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: _phoneFocusNode.hasFocus
+                                  ? ColorConstants.brandBlue
+                                  : ColorConstants.line,
+                              width: _phoneFocusNode.hasFocus ? 1.5 : 1,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: ColorConstants.navy.withValues(
+                                  alpha: 0.08,
+                                ),
+                                blurRadius: 12,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                Text(
+                                  '+91',
+                                  style: TextStyleConstants.bodyMedium.copyWith(
+                                    color: ColorConstants.ink,
+                                    fontWeight: FontWeight.w600,
+                                    height: 1,
+                                  ),
+                                ),
+
+                                const SizedBox(width: 6),
+
+                                Container(
+                                  width: 1,
+                                  height: 18,
+                                  color: ColorConstants.navy.withValues(
+                                    alpha: 0.7,
+                                  ),
+                                ),
+
+                                const SizedBox(width: 6),
+
+                                Expanded(
+                                  child: TextFormField(
+                                    controller: _phoneController,
+                                    focusNode: _phoneFocusNode,
+                                    keyboardType: TextInputType.phone,
+                                    cursorColor: ColorConstants.brandBlue,
+                                    cursorWidth: 2,
+                                    cursorHeight: 18,
+                                    minLines: null,
+                                    maxLines: null,
+                                    expands: true,
+                                    textAlignVertical: TextAlignVertical.center,
+                                    style: TextStyleConstants.bodyMedium
+                                        .copyWith(
+                                          color: ColorConstants.ink,
+                                          height: 1,
+                                        ),
+                                    inputFormatters: [
+                                      FilteringTextInputFormatter.digitsOnly,
+                                      LengthLimitingTextInputFormatter(10),
+                                    ],
+                                    decoration: InputDecoration(
+                                      isCollapsed: true,
+                                      hintText: '98765 43210',
+                                      hintStyle: TextStyleConstants.bodyMedium
+                                          .copyWith(
+                                            color: ColorConstants.ink
+                                                .withValues(alpha: 0.32),
+                                            height: 1,
+                                          ),
+                                      border: InputBorder.none,
+                                      enabledBorder: InputBorder.none,
+                                      focusedBorder: InputBorder.none,
+                                      disabledBorder: InputBorder.none,
+                                      errorBorder: InputBorder.none,
+                                      focusedErrorBorder: InputBorder.none,
+                                      contentPadding: EdgeInsets.zero,
+                                    ),
+                                    onChanged: (String value) {
+                                      context.read<LoginBloc>().add(
+                                        LoginPhoneChanged(value),
+                                      );
+                                    },
+                                    onTapOutside: (_) =>
+                                        _phoneFocusNode.unfocus(),
+                                    onFieldSubmitted: (_) {
+                                      if (state.isPhoneValid) {
+                                        context.read<LoginBloc>().add(
+                                          const LoginSubmitted(),
+                                        );
+                                      }
+                                    },
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                    const Spacer(),
+                    BlocBuilder<LoginBloc, LoginState>(
+                      buildWhen: (previous, current) =>
+                          previous.isPhoneValid != current.isPhoneValid,
+                      builder: (BuildContext context, LoginState state) {
+                        return CommonButtonWidget(
+                          label: 'Login',
+                          onPressed: state.isPhoneValid
+                              ? () {
+                                  context.read<LoginBloc>().add(
+                                    const LoginSubmitted(),
+                                  );
+                                }
+                              : null,
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LoginHero extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      height: AppSize.h(context, 140),
+      padding: AppSize.insets(
+        context,
+        left: 20,
+        top: 28,
+        right: 20,
+        bottom: 20,
+      ),
+      decoration: BoxDecoration(
+        color: ColorConstants.navy,
+        borderRadius: BorderRadius.circular(AppSize.r(context, 12)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: <Widget>[
+          RichText(
+            text: TextSpan(
+              style: TextStyleConstants.cardTitleLarge.copyWith(
+                color: ColorConstants.white,
+                fontSize: AppSize.sp(context, 22),
+              ),
+              children: const <InlineSpan>[
+                TextSpan(text: 'Sto'),
+                TextSpan(
+                  text: 'X',
+                  style: TextStyle(color: ColorConstants.brandBlueLight),
+                ),
+                TextSpan(text: 'ify'),
+              ],
+            ),
+          ),
+          SizedBox(height: AppSize.h(context, 8)),
+          Text(
+            StringConstants.brandTagline,
+            style: TextStyleConstants.caption.copyWith(
+              color: const Color(0xFFA9B7D0),
+              fontSize: AppSize.sp(context, 11),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
