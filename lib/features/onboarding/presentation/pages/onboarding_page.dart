@@ -335,7 +335,7 @@ class _OnboardingCopy extends StatelessWidget {
           ),
         ),
         SizedBox(height: AppSize.h(context, 16)),
-        // const _ProgressIndicator(),
+        const _ProgressIndicator(),
       ],
     );
   }

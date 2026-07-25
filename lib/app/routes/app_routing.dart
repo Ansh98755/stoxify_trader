@@ -1,10 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../features/advisor/presentation/pages/advisor_profile_page.dart';
+import '../../features/auth/presentation/pages/interest_page.dart';
 import '../../features/auth/presentation/pages/login_page.dart';
+import '../../features/auth/presentation/pages/otp_page.dart';
+import '../../features/discover/presentation/pages/discover_page.dart';
 import '../../features/home/presentation/pages/home_page.dart';
+import '../../features/notifications/presentation/pages/notifications_page.dart';
 import '../../features/onboarding/presentation/pages/onboarding_page.dart';
+import '../../features/profile/presentation/pages/profile_page.dart';
+import '../../features/search/presentation/pages/search_page.dart';
+import '../../features/settings/presentation/pages/settings_page.dart';
 import '../../features/splash/presentation/pages/splash_page.dart';
+import '../../features/subscriptions/presentation/pages/my_subscriptions_page.dart';
+import '../../features/subscriptions/presentation/pages/payment_success_page.dart';
+import '../../features/subscriptions/presentation/pages/subscriptions_page.dart';
+import '../../features/trades/presentation/pages/trade_details_page.dart';
+import '../../features/trades/presentation/pages/trades_page.dart';
 import 'app_routing_name.dart';
 
 class AppRouting {
@@ -21,30 +34,90 @@ class AppRouting {
       GoRoute(
         path: AppRoutingName.splash,
         name: AppRoutingName.splash,
-        builder: (BuildContext context, GoRouterState state) {
-          return const SplashPage();
-        },
+        builder: (_, _) => const SplashPage(),
       ),
       GoRoute(
         path: AppRoutingName.onboarding,
         name: AppRoutingName.onboarding,
-        builder: (BuildContext context, GoRouterState state) {
-          return const OnboardingPage();
-        },
+        builder: (_, _) => const OnboardingPage(),
       ),
       GoRoute(
         path: AppRoutingName.login,
         name: AppRoutingName.login,
+        builder: (_, _) => const LoginPage(),
+      ),
+      GoRoute(
+        path: AppRoutingName.otp,
+        name: AppRoutingName.otp,
         builder: (BuildContext context, GoRouterState state) {
-          return const LoginPage();
+          final phone = state.uri.queryParameters['phone'] ?? '';
+          return OtpPage(phoneNumber: phone);
         },
+      ),
+      GoRoute(
+        path: AppRoutingName.interest,
+        name: AppRoutingName.interest,
+        builder: (_, _) => const InterestPage(),
       ),
       GoRoute(
         path: AppRoutingName.home,
         name: AppRoutingName.home,
-        builder: (BuildContext context, GoRouterState state) {
-          return const HomePage();
-        },
+        builder: (_, _) => const HomePage(),
+      ),
+      GoRoute(
+        path: AppRoutingName.discover,
+        name: AppRoutingName.discover,
+        builder: (_, _) => const DiscoverPage(),
+      ),
+      GoRoute(
+        path: AppRoutingName.tradeFeed,
+        name: AppRoutingName.tradeFeed,
+        builder: (_, _) => const TradesPage(),
+      ),
+      GoRoute(
+        path: AppRoutingName.profile,
+        name: AppRoutingName.profile,
+        builder: (_, _) => const ProfilePage(),
+      ),
+      GoRoute(
+        path: AppRoutingName.settings,
+        name: AppRoutingName.settings,
+        builder: (_, _) => const SettingsPage(),
+      ),
+      GoRoute(
+        path: AppRoutingName.notifications,
+        name: AppRoutingName.notifications,
+        builder: (_, _) => const NotificationsPage(),
+      ),
+      GoRoute(
+        path: AppRoutingName.search,
+        name: AppRoutingName.search,
+        builder: (_, _) => const SearchPage(),
+      ),
+      GoRoute(
+        path: AppRoutingName.advisorProfile,
+        name: AppRoutingName.advisorProfile,
+        builder: (_, _) => const AdvisorProfilePage(),
+      ),
+      GoRoute(
+        path: AppRoutingName.tradeDetails,
+        name: AppRoutingName.tradeDetails,
+        builder: (_, _) => const TradeDetailsPage(),
+      ),
+      GoRoute(
+        path: AppRoutingName.subscriptions,
+        name: AppRoutingName.subscriptions,
+        builder: (_, _) => const SubscriptionsPage(),
+      ),
+      GoRoute(
+        path: AppRoutingName.paymentSuccess,
+        name: AppRoutingName.paymentSuccess,
+        builder: (_, _) => const PaymentSuccessPage(),
+      ),
+      GoRoute(
+        path: AppRoutingName.mySubscriptions,
+        name: AppRoutingName.mySubscriptions,
+        builder: (_, _) => const MySubscriptionsPage(),
       ),
     ],
     errorBuilder: (BuildContext context, GoRouterState state) {

@@ -43,7 +43,7 @@ class BottomNavbar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      minimum: AppSize.insets(context, left: 16, right: 16, bottom: 12),
+      minimum: AppSize.insets(context, left: 12, right: 12, bottom: 12),
       child: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(AppSize.r(context, 16)),

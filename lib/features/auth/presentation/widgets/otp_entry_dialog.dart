@@ -12,6 +12,7 @@ import '../../../../core/widgets/common_button_widget.dart';
 Future<String?> showOtpEntryDialog({
   required BuildContext context,
   required String phoneNumber,
+  VoidCallback? onResend,
 }) {
   return showGeneralDialog<String>(
     context: context,
@@ -20,7 +21,10 @@ Future<String?> showOtpEntryDialog({
     barrierColor: ColorConstants.navy.withValues(alpha: 0.58),
     transitionDuration: const Duration(milliseconds: 280),
     pageBuilder: (context, animation, secondaryAnimation) {
-      return _OtpEntryDialog(phoneNumber: phoneNumber);
+      return _OtpEntryDialog(
+        phoneNumber: phoneNumber,
+        onResend: onResend,
+      );
     },
     transitionBuilder:
         (
@@ -50,9 +54,13 @@ Future<String?> showOtpEntryDialog({
 }
 
 class _OtpEntryDialog extends StatefulWidget {
-  const _OtpEntryDialog({required this.phoneNumber});
+  const _OtpEntryDialog({
+    required this.phoneNumber,
+    this.onResend,
+  });
 
   final String phoneNumber;
+  final VoidCallback? onResend;
 
   @override
   State<_OtpEntryDialog> createState() => _OtpEntryDialogState();
@@ -314,6 +322,7 @@ class _OtpEntryDialogState extends State<_OtpEntryDialog> {
                           : TextButton(
                               key: const ValueKey<String>('resend-button'),
                               onPressed: () {
+                                widget.onResend?.call();
                                 _otpController.clear();
                                 _startResendTimer();
                                 _otpFocusNode.requestFocus();

@@ -7,6 +7,7 @@ import '../../../../app/routes/app_routing_name.dart';
 import '../../../../core/constants/color_constants.dart';
 import '../../../../core/constants/string_constants.dart';
 import '../../../../core/constants/text_style_constants.dart';
+import '../../../../core/di/injection.dart';
 import '../../../../core/utils/app_size.dart';
 import '../../../../core/widgets/common_app_notification_bar.dart';
 import '../../../../core/widgets/common_button_widget.dart';
@@ -21,7 +22,7 @@ class LoginPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return BlocProvider<LoginBloc>(
-      create: (_) => LoginBloc(),
+      create: (_) => getIt<LoginBloc>(),
       child: const _LoginView(),
     );
   }
@@ -60,37 +61,71 @@ class _LoginViewState extends State<_LoginView> {
 
   @override
   Widget build(BuildContext context) {
-    return BlocListener<LoginBloc, LoginState>(
-      listenWhen: (previous, current) =>
-          previous.submissionCount != current.submissionCount,
-      listener: (BuildContext context, LoginState state) async {
-        if (_isOtpFlowActive) return;
-        _isOtpFlowActive = true;
-        try {
-          _phoneFocusNode.unfocus();
+    return MultiBlocListener(
+      listeners: <BlocListener<LoginBloc, LoginState>>[
+        BlocListener<LoginBloc, LoginState>(
+          listenWhen: (previous, current) =>
+              previous.otpSentCount != current.otpSentCount,
+          listener: (BuildContext context, LoginState state) async {
+            if (_isOtpFlowActive) return;
+            _isOtpFlowActive = true;
+            try {
+              _phoneFocusNode.unfocus();
 
-          await CommonAppNotificationBar.success(
-            context: context,
-            title: 'OTP sent',
-            message: 'A 6-digit verification code was sent to your phone.',
-            duration: const Duration(milliseconds: 750),
-          );
+              await CommonAppNotificationBar.success(
+                context: context,
+                title: 'OTP sent',
+                message: 'A 6-digit verification code was sent to your phone.',
+                duration: const Duration(milliseconds: 750),
+              );
 
-          if (!context.mounted) return;
+              if (!context.mounted) return;
 
-          final otp = await showOtpEntryDialog(
-            context: context,
-            phoneNumber: state.phoneNumber,
-          );
+              final otp = await showOtpEntryDialog(
+                context: context,
+                phoneNumber: state.phoneNumber,
+                onResend: () {
+                  context.read<LoginBloc>().add(
+                        const LoginOtpResendRequested(),
+                      );
+                },
+              );
 
-          if (!context.mounted) return;
-          if (otp != null && otp.length == 6) {
-            context.go(AppRoutingName.home);
-          }
-        } finally {
-          _isOtpFlowActive = false;
-        }
-      },
+              if (!context.mounted) return;
+              if (otp != null && otp.length == 6) {
+                context.read<LoginBloc>().add(LoginOtpSubmitted(otp));
+              }
+            } finally {
+              _isOtpFlowActive = false;
+            }
+          },
+        ),
+        BlocListener<LoginBloc, LoginState>(
+          listenWhen: (previous, current) =>
+              previous.verifySuccessCount != current.verifySuccessCount,
+          listener: (BuildContext context, LoginState state) {
+            if (state.isNewUser) {
+              context.go(AppRoutingName.interest);
+            } else {
+              context.go(AppRoutingName.home);
+            }
+          },
+        ),
+        BlocListener<LoginBloc, LoginState>(
+          listenWhen: (previous, current) =>
+              current.errorMessage != null &&
+              previous.errorMessage != current.errorMessage,
+          listener: (BuildContext context, LoginState state) {
+            final message = state.errorMessage;
+            if (message == null) return;
+            CommonAppNotificationBar.error(
+              context: context,
+              title: 'Error',
+              message: message,
+            );
+          },
+        ),
+      ],
       child: Scaffold(
         backgroundColor: ColorConstants.loginBackground,
         body: SafeArea(
@@ -224,7 +259,8 @@ class _LoginViewState extends State<_LoginView> {
                                     onTapOutside: (_) =>
                                         _phoneFocusNode.unfocus(),
                                     onFieldSubmitted: (_) {
-                                      if (state.isPhoneValid) {
+                                      if (state.isPhoneValid &&
+                                          !state.isSubmitting) {
                                         context.read<LoginBloc>().add(
                                           const LoginSubmitted(),
                                         );
@@ -241,11 +277,13 @@ class _LoginViewState extends State<_LoginView> {
                     const Spacer(),
                     BlocBuilder<LoginBloc, LoginState>(
                       buildWhen: (previous, current) =>
-                          previous.isPhoneValid != current.isPhoneValid,
+                          previous.isPhoneValid != current.isPhoneValid ||
+                          previous.isSubmitting != current.isSubmitting,
                       builder: (BuildContext context, LoginState state) {
                         return CommonButtonWidget(
                           label: 'Login',
-                          onPressed: state.isPhoneValid
+                          isLoading: state.isSubmitting,
+                          onPressed: state.isPhoneValid && !state.isSubmitting
                               ? () {
                                   context.read<LoginBloc>().add(
                                     const LoginSubmitted(),

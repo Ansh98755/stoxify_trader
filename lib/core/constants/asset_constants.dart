@@ -7,4 +7,12 @@ class AssetConstants {
   static const String homeBackgroundTrading =
       'assets/icons/home_background_icon_trading.png';
   static const String notificationIcon = 'assets/icons/notification_icon.png';
+  static const String filterIcon = 'assets/icons/filter_icon_home_screen.png';
+  static const String batchIcon = 'assets/icons/batch_icon.png';
+  static const String winRateAnalystCard =
+      'assets/icons/win_rate_analyst_card.png';
+  static const String avgPlAnalystCard =
+      'assets/icons/avg_pl_icon_analyst_card.png';
+  static const String subscribersAnalystCard =
+      'assets/icons/subscribers_analyst_card.png';
 }

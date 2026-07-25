@@ -35,8 +35,21 @@ class ColorConstants {
   static const Color riskHighBg = Color(0xFFFEF2F2);
   static const Color profitBg = Color(0xFFDCFCE7);
   static const Color lossBg = Color(0xFFFEE2E2);
+  static const Color profitBgStrong = Color(0xFFBBF7D0);
+  static const Color lossBgStrong = Color(0xFFFECACA);
   static const Color liveBg = Color(0xFFEFF6FF);
   static const Color warnBg = Color(0xFFFFFBEB);
+  static const Color pillSuccessBg = Color(0xFFECFDF3);
+
+  // ——— Trade card accents ———
+  static const Color greenLight = Color(0xFF86EFAC);
+  static const Color greenBright = Color(0xFF22C55E);
+  static const Color redLight = Color(0xFFFCA5A5);
+  static const Color redBright = Color(0xFFEF4444);
+  static const Color avatarBlueStart = Color(0xFF2563EB);
+  static const Color avatarBlueEnd = Color(0xFF1E40AF);
+  static const Color pillNeutralBg = Color(0xFFF3F4F6);
+  static const Color shadowSoft = Color(0xFF101828);
 
   // ——— Gradients (start / end) ———
   static const Color gradientBlueStart = Color(0xFF1A5CC8);

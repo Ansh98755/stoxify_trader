@@ -1,0 +1,25 @@
+import '../entities/home_subscription.dart';
+import '../entities/home_trade.dart';
+
+class HomeFeedPage {
+  const HomeFeedPage({
+    required this.trades,
+    required this.page,
+    required this.hasMore,
+  });
+
+  final List<HomeTrade> trades;
+  final int page;
+  final bool hasMore;
+}
+
+abstract class HomeRepository {
+  static const int pageSize = 20;
+
+  Future<HomeFeedPage> fetchFeed({
+    required int page,
+    String? segment,
+  });
+
+  Future<List<HomeSubscription>> fetchSubscriptions();
+}
