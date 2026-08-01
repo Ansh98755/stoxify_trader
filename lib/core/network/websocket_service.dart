@@ -1,9 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../../features/auth/domain/repositories/auth_repository.dart';
 import '../storage/secure_storage.dart';
@@ -21,7 +22,8 @@ class WebSocketService with WidgetsBindingObserver {
   final AuthRepository authRepository;
   final SecureStorage storage;
 
-  WebSocket? _socket;
+  WebSocketChannel? _channel;
+  StreamSubscription<dynamic>? _subscription;
   Timer? _pingTimer;
   Timer? _reconnectTimer;
   bool _isDisposed = false;
@@ -39,8 +41,7 @@ class WebSocketService with WidgetsBindingObserver {
   Stream<Map<String, dynamic>> get notificationUpdates =>
       _notificationController.stream;
 
-  bool get isConnected =>
-      _socket != null && _socket!.readyState == WebSocket.open;
+  bool get isConnected => _channel != null;
 
   Future<void> connect() async {
     if (_connecting || isConnected || _isDisposed) return;
@@ -61,15 +62,17 @@ class WebSocketService with WidgetsBindingObserver {
       final wsUrl = '$base/ws/?channel_id=$channelId';
 
       debugPrint('[WS] Connecting to $wsUrl');
-      _socket =
-          await WebSocket.connect(wsUrl).timeout(const Duration(seconds: 10));
+
+      _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
+      await _channel!.ready.timeout(const Duration(seconds: 10));
+
       _reconnectAttempts = 0;
       _connecting = false;
 
       debugPrint('[WS] *********** Connected successfully *************');
       _startPing();
 
-      _socket!.listen(
+      _subscription = _channel!.stream.listen(
         _onMessage,
         onDone: _onClose,
         onError: _onError,
@@ -78,7 +81,7 @@ class WebSocketService with WidgetsBindingObserver {
     } catch (e) {
       debugPrint('[WS] Connection error: $e');
       _connecting = false;
-      _socket = null;
+      _channel = null;
       _scheduleReconnect();
     }
   }
@@ -153,7 +156,7 @@ class WebSocketService with WidgetsBindingObserver {
     _pingTimer?.cancel();
     _pingTimer = Timer.periodic(const Duration(seconds: 25), (_) {
       if (isConnected) {
-        _socket!.add(jsonEncode({'type': 'ping'}));
+        _channel!.sink.add(jsonEncode({'type': 'ping'}));
       }
     });
   }
@@ -161,12 +164,14 @@ class WebSocketService with WidgetsBindingObserver {
   void _cleanup() {
     _pingTimer?.cancel();
     _pingTimer = null;
-    _socket = null;
+    _subscription?.cancel();
+    _subscription = null;
+    _channel = null;
   }
 
   void disconnect() {
     _cleanup();
-    _socket?.close();
+    _channel?.sink.close();
   }
 
   void dispose() {

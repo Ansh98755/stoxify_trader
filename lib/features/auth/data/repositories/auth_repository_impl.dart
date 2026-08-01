@@ -1,6 +1,5 @@
-import 'dart:io' show Platform;
-
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../core/storage/secure_storage.dart';
@@ -20,8 +19,31 @@ class AuthRepositoryImpl implements AuthRepository {
   AuthUser? _cachedUser;
   Future<AuthUser>? _getMeRequest;
 
-  String get _deviceType => Platform.isIOS ? 'IOS' : 'ANDROID';
-  String get _deviceName => 'StoXify ${Platform.operatingSystem}';
+  String get _deviceType {
+    if (kIsWeb) return 'WEB';
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.iOS:
+        return 'IOS';
+      case TargetPlatform.macOS:
+        return 'MACOS';
+      default:
+        return 'ANDROID';
+    }
+  }
+
+  String get _deviceName {
+    if (kIsWeb) return 'StoXify Web';
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.iOS:
+        return 'StoXify iOS';
+      case TargetPlatform.macOS:
+        return 'StoXify macOS';
+      case TargetPlatform.windows:
+        return 'StoXify Windows';
+      default:
+        return 'StoXify Android';
+    }
+  }
 
   @override
   Future<void> requestOtp(String phoneE164) async {
