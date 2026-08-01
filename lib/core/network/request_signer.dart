@@ -17,7 +17,12 @@ abstract class RequestSigner {
   });
 }
 
-/// DEV-ONLY ECDSA P-256 signer using bundled `assets/dev/ecdsa_private.pem`.
+/// ECDSA P-256 request signer.
+///
+/// In release / CI builds the PEM is injected at compile time via:
+///   --dart-define=ECDSA_PRIVATE_KEY_PEM=<url-safe-base64-encoded PEM>
+///
+/// In debug builds it falls back to the bundled `assets/dev/ecdsa_private.pem`.
 class EcdsaRequestSigner implements RequestSigner {
   EcdsaRequestSigner._(this._privateKey, this.keyVersion);
 
@@ -25,17 +30,29 @@ class EcdsaRequestSigner implements RequestSigner {
   final String keyVersion;
   final Random _rng = Random.secure();
 
+  // Injected at compile time via --dart-define.
+  // Store as base64 to avoid newline / quote issues in shell.
+  static const _injectedKeyBase64 = String.fromEnvironment('ECDSA_PRIVATE_KEY_PEM');
   static const _devKeyAsset = 'assets/dev/ecdsa_private.pem';
-  static const _allowDevSignerInRelease =
-      bool.fromEnvironment('ALLOW_DEV_SIGNER');
 
-  static Future<EcdsaRequestSigner> loadDev({String keyVersion = 'v1.0'}) async {
-    if (kReleaseMode && !_allowDevSignerInRelease) {
+  /// Loads the signer from the injected dart-define key in release builds,
+  /// or from the bundled asset in debug builds.
+  static Future<EcdsaRequestSigner> load({String keyVersion = 'v1.0'}) async {
+    String pem;
+
+    if (_injectedKeyBase64.isNotEmpty) {
+      // Decode the base64-encoded PEM injected via --dart-define
+      pem = utf8.decode(base64.decode(_injectedKeyBase64));
+    } else if (!kReleaseMode) {
+      // Debug/profile only — load from bundled asset
+      pem = await rootBundle.loadString(_devKeyAsset);
+    } else {
       throw StateError(
-        'Refusing to load the bundled dev signing key in a release build.',
+        'No ECDSA signing key available. '
+        'Set the ECDSA_PRIVATE_KEY_PEM dart-define in your release build.',
       );
     }
-    final pem = await rootBundle.loadString(_devKeyAsset);
+
     final key = CryptoUtils.ecPrivateKeyFromPem(pem);
     return EcdsaRequestSigner._(key, keyVersion);
   }
