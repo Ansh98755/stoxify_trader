@@ -71,3 +71,8 @@ final class HomeTradeToggleSaved extends HomeEvent {
   @override
   List<Object?> get props => <Object?>[tradeId];
 }
+
+/// Clears saveTradeSuccess / saveTradeError after the page has shown the flushbar.
+final class HomeClearSaveFeedback extends HomeEvent {
+  const HomeClearSaveFeedback();
+}

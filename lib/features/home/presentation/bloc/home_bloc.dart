@@ -4,9 +4,9 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/services/live_prices_service.dart';
 import '../../../../core/network/websocket_service.dart';
-import '../../../../core/widgets/common_trading_card.dart';
 import '../../../auth/domain/repositories/auth_repository.dart';
 import '../../domain/entities/home_subscription.dart';
+import '../../../../../shared/models/trading_card_data.dart';
 import '../../domain/entities/home_trade.dart';
 import '../../domain/repositories/home_repository.dart';
 import '../mappers/home_ui_mapper.dart';
@@ -34,6 +34,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     on<HomeNotificationReceived>(_onNotificationReceived);
     on<HomeNotificationsOpened>(_onNotificationsOpened);
     on<HomeTradeToggleSaved>(_onToggleSaved);
+    on<HomeClearSaveFeedback>(_onClearSaveFeedback);
   }
 
   final HomeRepository _repository;
@@ -48,8 +49,6 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     emit(state.copyWith(status: HomeStatus.loading, clearError: true));
     unawaited(_webSocket.connect());
     await _loadInitial(emit, includeProfile: true);
-    // Start live price tracking only after initial data is in state so that
-    // incoming price events never race against the first feed emit.
     _livePrices.start();
     _bindLiveStreams();
   }
@@ -81,11 +80,13 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       final apiSegment = mapFilterSegmentToApi(state.filterSegment);
       final feedFuture = _repository.fetchFeed(page: 1, segment: apiSegment);
       final subsFuture = _repository.fetchSubscriptions();
+      final savedIdsFuture = _repository.fetchSavedTradeIds();
       final profileFuture =
           includeProfile ? _authRepository.getMe() : null;
 
       final feed = await feedFuture;
       final subs = await subsFuture;
+      final savedIds = await savedIdsFuture;
       final profile = profileFuture == null ? null : await profileFuture;
 
       var activeTrades =
@@ -106,13 +107,15 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
             query: state.query,
             segment: state.filterSegment,
             sort: state.sort,
-            savedIds: state.savedTradeIds,
+            savedIds: savedIds,
           ),
           subscriptions: _mapSubscriptions(subs),
+          rawSubscriptions: subs,
           page: feed.page,
           hasMore: feed.hasMore,
           isRefreshing: false,
           clearError: true,
+          savedTradeIds: savedIds,
         ),
       );
     } catch (e) {
@@ -263,26 +266,71 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     emit(state.copyWith(unreadNotifications: 0));
   }
 
-  void _onToggleSaved(
+  Future<void> _onToggleSaved(
     HomeTradeToggleSaved event,
     Emitter<HomeState> emit,
-  ) {
-    final updated = Set<String>.from(state.savedTradeIds);
-    if (updated.contains(event.tradeId)) {
-      updated.remove(event.tradeId);
+  ) async {
+    final wasSaved = state.savedTradeIds.contains(event.tradeId);
+
+    // Optimistic update — flip UI immediately.
+    final optimistic = Set<String>.from(state.savedTradeIds);
+    if (wasSaved) {
+      optimistic.remove(event.tradeId);
     } else {
-      updated.add(event.tradeId);
+      optimistic.add(event.tradeId);
     }
-    // TODO: API CALL FOR SAVING TRADE
     emit(state.copyWith(
-      savedTradeIds: updated,
+      savedTradeIds: optimistic,
       cards: _applyLocalFilters(
         state.trades,
         query: state.query,
         segment: state.filterSegment,
         sort: state.sort,
-        savedIds: updated,
+        savedIds: optimistic,
       ),
+    ));
+
+    try {
+      if (wasSaved) {
+        await _repository.unsaveTrade(event.tradeId);
+      } else {
+        await _repository.saveTrade(event.tradeId);
+      }
+      emit(state.copyWith(
+        saveTradeSuccess: !wasSaved,
+        saveTradeError: null,
+      ));
+    } catch (_) {
+      // Rollback optimistic update on failure.
+      final rolledBack = Set<String>.from(state.savedTradeIds);
+      if (wasSaved) {
+        rolledBack.add(event.tradeId);
+      } else {
+        rolledBack.remove(event.tradeId);
+      }
+      emit(state.copyWith(
+        savedTradeIds: rolledBack,
+        cards: _applyLocalFilters(
+          state.trades,
+          query: state.query,
+          segment: state.filterSegment,
+          sort: state.sort,
+          savedIds: rolledBack,
+        ),
+        saveTradeError: wasSaved
+            ? 'Failed to remove trade. Please try again.'
+            : 'Failed to save trade. Please try again.',
+      ));
+    }
+  }
+
+  void _onClearSaveFeedback(
+    HomeClearSaveFeedback event,
+    Emitter<HomeState> emit,
+  ) {
+    emit(state.copyWith(
+      clearSaveTradeSuccess: true,
+      clearSaveTradeError: true,
     ));
   }
 

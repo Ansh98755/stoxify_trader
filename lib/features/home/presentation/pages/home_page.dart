@@ -14,11 +14,14 @@ import '../../../../core/widgets/app_screen_background.dart';
 import '../../../../core/widgets/bottom_navbar.dart';
 import '../../../../core/widgets/common_app_notification_bar.dart';
 import '../../../../core/widgets/common_trading_card.dart';
+import '../../../../../shared/models/trading_card_data.dart';
+import '../../domain/entities/home_trade.dart';
 import '../bloc/home_bloc.dart';
 import '../bloc/home_event.dart';
 import '../bloc/home_state.dart';
 import '../widgets/home_search_row.dart';
 import '../widgets/home_subscriptions_strip.dart';
+import '../widgets/subscription_detail_sheet.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -106,28 +109,9 @@ class _HomeViewState extends State<_HomeView> {
         );
   }
 
-  /// Fires the save/unsave toggle and shows a flushbar.
-  /// The guard [_flushbarVisible] prevents multiple flushbars stacking.
-  Future<void> _onSaveTap({
-    required String tradeId,
-    required bool currentlySaved,
-  }) async {
-    if (_flushbarVisible) return;
-    _flushbarVisible = true;
-
-    // Dispatch toggle immediately — UI label flips without waiting for flushbar.
+  /// Fires the save/unsave toggle — the BlocListener above handles the flushbar.
+  void _onSaveTap({required String tradeId}) {
     context.read<HomeBloc>().add(HomeTradeToggleSaved(tradeId));
-
-    await CommonAppNotificationBar.success(
-      context: context,
-      title: currentlySaved ? 'Trade removed' : 'Trade saved',
-      message: currentlySaved
-          ? 'Removed from your saved trades.'
-          : 'Added to your saved trades.',
-      duration: const Duration(seconds: 2),
-    );
-
-    _flushbarVisible = false;
   }
 
   @override
@@ -135,7 +119,47 @@ class _HomeViewState extends State<_HomeView> {
     return Scaffold(
       extendBody: true,
       backgroundColor: ColorConstants.transparent,
-      body: Stack(
+      body: BlocListener<HomeBloc, HomeState>(
+        listenWhen: (prev, curr) =>
+            prev.saveTradeSuccess != curr.saveTradeSuccess ||
+            prev.saveTradeError != curr.saveTradeError,
+        listener: (context, state) async {
+          if (_flushbarVisible) return;
+
+          if (state.saveTradeSuccess != null) {
+            _flushbarVisible = true;
+            if (state.saveTradeSuccess!) {
+              await CommonAppNotificationBar.success(
+                context: context,
+                title: 'Trade saved',
+                message: 'Added to your saved trades.',
+                duration: const Duration(seconds: 2),
+              );
+            } else {
+              await CommonAppNotificationBar.error(
+                context: context,
+                title: 'Trade removed',
+                message: 'Removed from your saved trades.',
+              );
+            }
+            _flushbarVisible = false;
+            if (context.mounted) {
+              context.read<HomeBloc>().add(const HomeClearSaveFeedback());
+            }
+          } else if (state.saveTradeError != null) {
+            _flushbarVisible = true;
+            await CommonAppNotificationBar.error(
+              context: context,
+              title: 'Error',
+              message: state.saveTradeError!,
+            );
+            _flushbarVisible = false;
+            if (context.mounted) {
+              context.read<HomeBloc>().add(const HomeClearSaveFeedback());
+            }
+          }
+        },
+        child: Stack(
         children: <Widget>[
           const AppScreenBackground(),
           // RepaintBoundary isolates the content layer from the animated
@@ -144,7 +168,7 @@ class _HomeViewState extends State<_HomeView> {
           RepaintBoundary(
             child: SafeArea(
               child: Padding(
-                padding: AppSize.insets(context, left: 16, right: 16, top: 10),
+                padding: AppSize.insets(context, left: 16, right: 16, top: 8),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
@@ -165,12 +189,68 @@ class _HomeViewState extends State<_HomeView> {
                               ),
                             ),
                             Container(
-                              height: 36,
-                              width: 42,
+                              height: 35,
+                              width: 35,
                               decoration: BoxDecoration(
-                                color: ColorConstants.white,
-                                border: Border.all(color: ColorConstants.line),
-                                borderRadius: BorderRadius.circular(16),
+                                gradient: const LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: <Color>[
+                                    ColorConstants.white,
+                                    ColorConstants.liveBg,
+                                  ],
+                                ),
+                                border: Border.all(
+                                  color: ColorConstants.brandBlue
+                                      .withValues(alpha: 0.18),
+                                ),
+                                shape: BoxShape.circle,
+                                boxShadow: <BoxShadow>[
+                                  BoxShadow(
+                                    color: ColorConstants.brandBlue
+                                        .withValues(alpha: 0.12),
+                                    blurRadius: 10,
+                                    offset: const Offset(0, 3),
+                                  ),
+                                ],
+                              ),
+                              child: IconButton(
+                                onPressed: () =>
+                                    context.push(AppRoutingName.savedTrades),
+                                tooltip: 'Saved trades',
+                                icon: Icon(
+                                  Icons.bookmark_rounded,
+                                  size: AppSize.r(context, 20),
+                                  color: ColorConstants.brandBlue,
+                                ),
+                              ),
+                            ),
+                            SizedBox(width: AppSize.w(context, 6)),
+                            Container(
+                              height: 35,
+                              width: 35,
+                              decoration: BoxDecoration(
+                                gradient: const LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: <Color>[
+                                    ColorConstants.white,
+                                    ColorConstants.liveBg,
+                                  ],
+                                ),
+                                border: Border.all(
+                                  color: ColorConstants.brandBlue
+                                      .withValues(alpha: 0.18),
+                                ),
+                                shape: BoxShape.circle,
+                                boxShadow: <BoxShadow>[
+                                  BoxShadow(
+                                    color: ColorConstants.brandBlue
+                                        .withValues(alpha: 0.12),
+                                    blurRadius: 10,
+                                    offset: const Offset(0, 3),
+                                  ),
+                                ],
                               ),
                               child: IconButton(
                                 onPressed: () {
@@ -185,8 +265,8 @@ class _HomeViewState extends State<_HomeView> {
                                   children: <Widget>[
                                     Image.asset(
                                       AssetConstants.notificationIcon,
-                                      width: AppSize.r(context, 25),
-                                      height: AppSize.r(context, 25),
+                                      width: AppSize.r(context, 40),
+                                      height: AppSize.r(context, 40),
                                       fit: BoxFit.contain,
                                     ),
                                     if (state.hasUnreadNotifications)
@@ -257,10 +337,17 @@ class _HomeViewState extends State<_HomeView> {
                                         onManageTap: () => context.push(
                                           AppRoutingName.mySubscriptions,
                                         ),
-                                        onSubscriptionTap: (_) =>
-                                            context.push(
-                                          AppRoutingName.advisorProfile,
-                                        ),
+                                        onSubscriptionTap: (item) {
+                                          final raw = state.rawSubscriptions
+                                              .where((s) =>
+                                                  (s.analystId ?? s.id) ==
+                                                  item.id)
+                                              .firstOrNull;
+                                          if (raw != null) {
+                                            showSubscriptionDetailSheet(
+                                                context, raw);
+                                          }
+                                        },
                                       ),
                                       SizedBox(
                                           height: AppSize.h(context, 10)),
@@ -334,6 +421,8 @@ class _HomeViewState extends State<_HomeView> {
                                         }
                                         final TradingCardData card =
                                             state.cards[index];
+                                        final HomeTrade trade =
+                                            state.trades[index];
                                         final String? tid = card.tradeId;
                                         final bool saved = tid != null &&
                                             state.savedTradeIds.contains(tid);
@@ -351,11 +440,11 @@ class _HomeViewState extends State<_HomeView> {
                                                   ? null
                                                   : () => _onSaveTap(
                                                         tradeId: tid,
-                                                        currentlySaved: saved,
                                                       ),
                                             ),
                                             onViewDetails: () => context.push(
                                               AppRoutingName.tradeDetails,
+                                              extra: trade,
                                             ),
                                           ),
                                         );
@@ -394,6 +483,7 @@ class _HomeViewState extends State<_HomeView> {
             ),
           ),
         ],
+      ),
       ),
     );
   }

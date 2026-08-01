@@ -21,6 +21,7 @@ class CommonBatchData {
     required this.tags,
     required this.price,
     required this.subscriberCount,
+    this.priceSuffix = '',
     this.avatarStart = ColorConstants.brandBlueLight,
     this.avatarEnd = ColorConstants.brandBlue,
   });
@@ -33,7 +34,8 @@ class CommonBatchData {
   final String description;
   final List<String> tags;
   final String price;
-  final String subscriberCount;
+  final String? subscriberCount;
+  final String priceSuffix;
   final Color avatarStart;
   final Color avatarEnd;
 }
@@ -44,12 +46,14 @@ class CommonBatchCard extends StatelessWidget {
     super.key,
     this.onTap,
     this.onSubscribe,
+    this.onAnalystTap,
     this.showAnalystProfile = true,
   });
 
   final CommonBatchData data;
   final VoidCallback? onTap;
   final VoidCallback? onSubscribe;
+  final VoidCallback? onAnalystTap;
 
   /// When false (e.g. advisor profile), hides the analyst strip and uses a divider.
   final bool showAnalystProfile;
@@ -87,13 +91,6 @@ class CommonBatchCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: ColorConstants.white,
                   borderRadius: BorderRadius.circular(radius),
-                  boxShadow: <BoxShadow>[
-                    BoxShadow(
-                      color: ColorConstants.navy.withValues(alpha: 0.07),
-                      blurRadius: AppSize.r(context, 18),
-                      offset: Offset(0, AppSize.h(context, 6)),
-                    ),
-                  ],
                 ),
                 child: Padding(
                   padding: AppSize.insets(
@@ -121,15 +118,18 @@ class CommonBatchCard extends StatelessWidget {
                                     color: ColorConstants.ink,
                                   ),
                                 ),
-                                SizedBox(height: AppSize.h(context, 4)),
-                                Text(
-                                  '${data.subscriberCount} subscribers',
-                                  style: TextStyleConstants.caption.copyWith(
-                                    fontSize: AppSize.sp(context, 11.5),
-                                    fontWeight: FontWeight.w600,
-                                    color: ColorConstants.mute,
+                                if (data.subscriberCount != null) ...<Widget>[
+                                  SizedBox(height: AppSize.h(context, 4)),
+                                  Text(
+                                    '${data.subscriberCount} subscribers',
+                                    style:
+                                        TextStyleConstants.caption.copyWith(
+                                      fontSize: AppSize.sp(context, 11.5),
+                                      fontWeight: FontWeight.w600,
+                                      color: ColorConstants.mute,
+                                    ),
                                   ),
-                                ),
+                                ],
                               ],
                             ),
                           ),
@@ -138,26 +138,29 @@ class CommonBatchCard extends StatelessWidget {
                       ),
                       if (showAnalystProfile) ...<Widget>[
                         SizedBox(height: AppSize.h(context, 8)),
-                        Container(
-                          padding: AppSize.insets(
+                        GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: onAnalystTap,
+                          child: Container(
+                            padding: AppSize.insets(
                             context,
                             left: 12,
                             right: 12,
                             top: 12,
                             bottom: 12,
-                          ),
-                          decoration: BoxDecoration(
-                            borderRadius:
-                                BorderRadius.circular(AppSize.r(context, 16)),
-                            border: Border.all(
-                              color:
-                                  ColorConstants.navy.withValues(alpha: 0.15),
                             ),
-                            color: ColorConstants.white,
-                          ),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            children: <Widget>[
+                            decoration: BoxDecoration(
+                              borderRadius:
+                                  BorderRadius.circular(AppSize.r(context, 16)),
+                              border: Border.all(
+                                color: ColorConstants.navy
+                                    .withValues(alpha: 0.15),
+                              ),
+                              color: ColorConstants.white,
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: <Widget>[
                               Container(
                                 width: AppSize.r(context, 44),
                                 height: AppSize.r(context, 44),
@@ -215,7 +218,8 @@ class CommonBatchCard extends StatelessWidget {
                               ),
                               SizedBox(width: AppSize.w(context, 10)),
                               const SebiVerifiedPill(compact: true),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
                         SizedBox(height: AppSize.h(context, 14)),
@@ -250,7 +254,7 @@ class CommonBatchCard extends StatelessWidget {
                                         ),
                                       ),
                                       TextSpan(
-                                        text: '/month',
+                                        text: data.priceSuffix,
                                         style: TextStyleConstants.bodyMedium
                                             .copyWith(
                                           fontSize: AppSize.sp(context, 12),

@@ -1,6 +1,7 @@
 import 'dart:io' show Platform;
 
 import 'package:dio/dio.dart';
+import 'package:flutter/material.dart';
 
 import '../../../../core/storage/secure_storage.dart';
 import '../../domain/entities/auth_user.dart';
@@ -16,6 +17,8 @@ class AuthRepositoryImpl implements AuthRepository {
 
   final Dio _dio;
   final SecureStorage _storage;
+  AuthUser? _cachedUser;
+  Future<AuthUser>? _getMeRequest;
 
   String get _deviceType => Platform.isIOS ? 'IOS' : 'ANDROID';
   String get _deviceName => 'StoXify ${Platform.operatingSystem}';
@@ -54,15 +57,33 @@ class AuthRepositoryImpl implements AuthRepository {
       SecureStorage.refreshToken,
       data['refresh_token'] as String,
     );
+    if(res.statusCode==200)
+      {
+        debugPrint("Hurray!!! verify-otp working fine ");
+      }
 
     return AuthUser.fromVerifyResponse(data);
   }
 
   @override
-  Future<AuthUser> getMe() async {
+  Future<AuthUser> getMe() {
+    final cached = _cachedUser;
+    if (cached != null) return Future.value(cached);
+
+    final activeRequest = _getMeRequest;
+    if (activeRequest != null) return activeRequest;
+
+    final request = _fetchMe();
+    _getMeRequest = request;
+    return request.whenComplete(() => _getMeRequest = null);
+  }
+
+  Future<AuthUser> _fetchMe() async {
     final res = await _dio.get('/users/me');
     if (res.statusCode != 200) throw _errorFrom(res);
-    return AuthUser.fromProfile(res.data as Map<String, dynamic>);
+    final user = AuthUser.fromProfile(res.data as Map<String, dynamic>);
+    _cachedUser = user;
+    return user;
   }
 
   @override
@@ -72,6 +93,7 @@ class AuthRepositoryImpl implements AuthRepository {
       data: {'interests': interests},
     );
     if (res.statusCode != 200) throw _errorFrom(res);
+    _cachedUser = null;
   }
 
   @override
@@ -93,6 +115,8 @@ class AuthRepositoryImpl implements AuthRepository {
     } catch (_) {
       // Best-effort revoke; always clear local tokens.
     } finally {
+      _cachedUser = null;
+      _getMeRequest = null;
       await _storage.delete(SecureStorage.accessToken);
       await _storage.delete(SecureStorage.refreshToken);
     }

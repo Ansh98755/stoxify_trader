@@ -9,6 +9,7 @@ import '../../../../core/widgets/segment_tag_chip.dart';
 
 class DiscoverAnalystData {
   const DiscoverAnalystData({
+    required this.userId,
     required this.name,
     required this.initials,
     required this.sebi,
@@ -19,12 +20,15 @@ class DiscoverAnalystData {
     required this.tags,
     required this.avatarStart,
     required this.avatarEnd,
+    this.profilePicUrl,
   });
 
+  final String userId;
   final String name;
   final String initials;
-  final String sebi;
+  final String? sebi;
   final String subtitle;
+  final String? profilePicUrl;
   final String winRate;
   final String avgPnl;
   final String subscribers;
@@ -77,13 +81,6 @@ class DiscoverAnalystCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: ColorConstants.white,
                   borderRadius: BorderRadius.circular(radius),
-                  boxShadow: <BoxShadow>[
-                    BoxShadow(
-                      color: ColorConstants.navy.withValues(alpha: 0.07),
-                      blurRadius: AppSize.r(context, 18),
-                      offset: Offset(0, AppSize.h(context, 6)),
-                    ),
-                  ],
                 ),
                 child: Padding(
                   padding: AppSize.insets(
@@ -101,6 +98,7 @@ class DiscoverAnalystCard extends StatelessWidget {
                         children: <Widget>[
                           _Avatar(
                             initials: data.initials,
+                            imageUrl: data.profilePicUrl,
                             start: data.avatarStart,
                             end: data.avatarEnd,
                             size: 52,
@@ -125,28 +123,35 @@ class DiscoverAnalystCard extends StatelessWidget {
                                       ),
                                     ),
                                     SizedBox(width: AppSize.w(context, 6)),
-                                    const SebiVerifiedPill(compact: true),
+                                    if (data.sebi != null)
+                                      const SebiVerifiedPill(compact: true),
                                   ],
                                 ),
-                                SizedBox(height: AppSize.h(context, 5)),
-                                Text(
-                                  data.subtitle,
-                                  style: TextStyleConstants.bodyMedium.copyWith(
-                                    fontSize: AppSize.sp(context, 12.5),
-                                    color: ColorConstants.mute,
-                                    height: 1.35,
+                                if (data.subtitle.isNotEmpty) ...<Widget>[
+                                  SizedBox(height: AppSize.h(context, 5)),
+                                  Text(
+                                    data.subtitle,
+                                    style:
+                                        TextStyleConstants.bodyMedium.copyWith(
+                                      fontSize: AppSize.sp(context, 12.5),
+                                      color: ColorConstants.mute,
+                                      height: 1.35,
+                                    ),
                                   ),
-                                ),
-                                SizedBox(height: AppSize.h(context, 4)),
-                                Text(
-                                  data.sebi,
-                                  style: TextStyleConstants.caption.copyWith(
-                                    fontSize: AppSize.sp(context, 11),
-                                    fontWeight: FontWeight.w600,
-                                    color: ColorConstants.brandBlue,
-                                    letterSpacing: 0.2,
+                                ],
+                                if (data.sebi != null) ...<Widget>[
+                                  SizedBox(height: AppSize.h(context, 4)),
+                                  Text(
+                                    data.sebi!,
+                                    style:
+                                        TextStyleConstants.caption.copyWith(
+                                      fontSize: AppSize.sp(context, 11),
+                                      fontWeight: FontWeight.w600,
+                                      color: ColorConstants.brandBlue,
+                                      letterSpacing: 0.2,
+                                    ),
                                   ),
-                                ),
+                                ],
                               ],
                             ),
                           ),
@@ -204,12 +209,14 @@ class DiscoverAnalystCard extends StatelessWidget {
 class _Avatar extends StatelessWidget {
   const _Avatar({
     required this.initials,
+    required this.imageUrl,
     required this.start,
     required this.end,
     required this.size,
   });
 
   final String initials;
+  final String? imageUrl;
   final Color start;
   final Color end;
   final double size;
@@ -238,15 +245,44 @@ class _Avatar extends StatelessWidget {
             colors: <Color>[start, end],
           ),
         ),
-        child: Center(
-          child: Text(
-            initials,
-            style: TextStyleConstants.cardTitleSmall.copyWith(
-              color: ColorConstants.white,
-              fontSize: AppSize.sp(context, size * 0.28),
-              fontWeight: FontWeight.w700,
-            ),
-          ),
+        child: ClipOval(
+          child: imageUrl != null
+              ? Image.network(
+                  imageUrl!,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) => _AvatarInitials(
+                    initials: initials,
+                    size: size,
+                  ),
+                )
+              : _AvatarInitials(
+                  initials: initials,
+                  size: size,
+                ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AvatarInitials extends StatelessWidget {
+  const _AvatarInitials({
+    required this.initials,
+    required this.size,
+  });
+
+  final String initials;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Text(
+        initials,
+        style: TextStyleConstants.cardTitleSmall.copyWith(
+          color: ColorConstants.white,
+          fontSize: AppSize.sp(context, size * 0.28),
+          fontWeight: FontWeight.w700,
         ),
       ),
     );

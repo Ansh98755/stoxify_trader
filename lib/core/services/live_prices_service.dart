@@ -57,6 +57,17 @@ class LivePricesService {
     _poll();
   }
 
+  /// Adds symbols without replacing those already tracked by another screen.
+  void trackAdditional(Iterable<String> symbols) {
+    final Set<String> additional =
+        symbols.where((symbol) => symbol.isNotEmpty).toSet();
+    if (additional.isEmpty || _symbols.containsAll(additional)) return;
+
+    _symbols.addAll(additional);
+    _startOrUpdateTimer();
+    _poll();
+  }
+
   void _startOrUpdateTimer() {
     _timer?.cancel();
     if (!_webSocket.isConnected) {

@@ -41,10 +41,17 @@ class HomeTrade {
     this.runningPnlPercent,
     this.batchName,
     this.analystName,
+    this.analystAvatarUrl,
+    this.analystWinRate,
+    this.logoUrl,
     this.rationale,
     required this.nseTimestamp,
+    this.entryTimestamp,
+    this.targets = const <TradeTarget>[],
+    this.hitTargets = const <String>[],
+    this.modifications = const <TradeModification>[],
+    this.planId,
   });
-
   final String id;
   final String symbol;
   final String? companyName;
@@ -62,13 +69,22 @@ class HomeTrade {
   final double? runningPnlPercent;
   final String? batchName;
   final String? analystName;
+  final String? analystAvatarUrl;
+  final double? analystWinRate;
+  final List<TradeTarget> targets;
+  final List<String> hitTargets;
+  final DateTime? entryTimestamp;
+  final List<TradeModification> modifications;
+  final String? planId;
+  final String? logoUrl;
   final String? rationale;
   final DateTime nseTimestamp;
 
   double get finalTarget => t3 ?? t2 ?? t1;
 
-  double? get currentPnlPercent =>
-      pnlPercent ?? (state.isLive ? ltpPnlPercent : null) ?? runningPnlPercent;
+  double? get currentPnlPercent => state.isLive
+      ? ltpPnlPercent ?? pnlPercent ?? runningPnlPercent
+      : pnlPercent ?? runningPnlPercent;
 
   double? get ltpPnlPercent {
     final ltpValue = ltp;
@@ -139,8 +155,16 @@ class HomeTrade {
     double? runningPnlPercent,
     String? batchName,
     String? analystName,
+    String? analystAvatarUrl,
+    double? analystWinRate,
+    String? logoUrl,
     String? rationale,
     DateTime? nseTimestamp,
+    DateTime? entryTimestamp,
+    List<TradeTarget>? targets,
+    List<String>? hitTargets,
+    List<TradeModification>? modifications,
+    String? planId,
   }) {
     return HomeTrade(
       id: id ?? this.id,
@@ -160,8 +184,35 @@ class HomeTrade {
       runningPnlPercent: runningPnlPercent ?? this.runningPnlPercent,
       batchName: batchName ?? this.batchName,
       analystName: analystName ?? this.analystName,
+      analystAvatarUrl: analystAvatarUrl ?? this.analystAvatarUrl,
+      analystWinRate: analystWinRate ?? this.analystWinRate,
+      logoUrl: logoUrl ?? this.logoUrl,
       rationale: rationale ?? this.rationale,
       nseTimestamp: nseTimestamp ?? this.nseTimestamp,
+      entryTimestamp: entryTimestamp ?? this.entryTimestamp,
+      targets: targets ?? this.targets,
+      hitTargets: hitTargets ?? this.hitTargets,
+      modifications: modifications ?? this.modifications,
+      planId: planId ?? this.planId,
     );
   }
 }
+class TradeTarget {
+  const TradeTarget({required this.price, required this.bookPercent});
+  final double price;
+  final double bookPercent;
+}
+
+class TradeModification {
+  const TradeModification({
+    required this.modifiedAt,
+    required this.modifiedBy,
+    required this.reason,
+    required this.fieldsChanged,
+  });
+  final DateTime modifiedAt;
+  final String modifiedBy;
+  final String reason;
+  final Map<String, dynamic> fieldsChanged;
+}
+

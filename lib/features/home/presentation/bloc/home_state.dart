@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 
-import '../../../../core/widgets/common_trading_card.dart';
+import '../../../../../shared/models/trading_card_data.dart';
+import '../../domain/entities/home_subscription.dart';
 import '../../domain/entities/home_trade.dart';
 import '../widgets/home_subscriptions_strip.dart';
 
@@ -13,6 +14,7 @@ class HomeState extends Equatable {
     this.trades = const <HomeTrade>[],
     this.cards = const <TradingCardData>[],
     this.subscriptions = const <HomeSubscriptionItem>[],
+    this.rawSubscriptions = const <HomeSubscription>[],
     this.page = 1,
     this.hasMore = false,
     this.isRefreshing = false,
@@ -23,6 +25,8 @@ class HomeState extends Equatable {
     this.filterSegment = 'All',
     this.sort = 'Newest',
     this.savedTradeIds = const <String>{},
+    this.saveTradeSuccess,
+    this.saveTradeError,
   });
 
   final HomeStatus status;
@@ -30,6 +34,7 @@ class HomeState extends Equatable {
   final List<HomeTrade> trades;
   final List<TradingCardData> cards;
   final List<HomeSubscriptionItem> subscriptions;
+  final List<HomeSubscription> rawSubscriptions;
   final int page;
   final bool hasMore;
   final bool isRefreshing;
@@ -41,6 +46,13 @@ class HomeState extends Equatable {
   final String sort;
   final Set<String> savedTradeIds;
 
+  /// Non-null after a successful save (true) or unsave (false) API call.
+  /// The page listens for this to show a flushbar, then clears it.
+  final bool? saveTradeSuccess;
+
+  /// Non-null when the save/unsave API call fails. Contains the error message.
+  final String? saveTradeError;
+
   bool get isLoading => status == HomeStatus.loading && cards.isEmpty;
   bool get hasUnreadNotifications => unreadNotifications > 0;
 
@@ -50,6 +62,7 @@ class HomeState extends Equatable {
     List<HomeTrade>? trades,
     List<TradingCardData>? cards,
     List<HomeSubscriptionItem>? subscriptions,
+    List<HomeSubscription>? rawSubscriptions,
     int? page,
     bool? hasMore,
     bool? isRefreshing,
@@ -61,6 +74,10 @@ class HomeState extends Equatable {
     String? filterSegment,
     String? sort,
     Set<String>? savedTradeIds,
+    bool? saveTradeSuccess,
+    bool clearSaveTradeSuccess = false,
+    String? saveTradeError,
+    bool clearSaveTradeError = false,
   }) {
     return HomeState(
       status: status ?? this.status,
@@ -68,6 +85,7 @@ class HomeState extends Equatable {
       trades: trades ?? this.trades,
       cards: cards ?? this.cards,
       subscriptions: subscriptions ?? this.subscriptions,
+      rawSubscriptions: rawSubscriptions ?? this.rawSubscriptions,
       page: page ?? this.page,
       hasMore: hasMore ?? this.hasMore,
       isRefreshing: isRefreshing ?? this.isRefreshing,
@@ -78,6 +96,12 @@ class HomeState extends Equatable {
       filterSegment: filterSegment ?? this.filterSegment,
       sort: sort ?? this.sort,
       savedTradeIds: savedTradeIds ?? this.savedTradeIds,
+      saveTradeSuccess: clearSaveTradeSuccess
+          ? null
+          : (saveTradeSuccess ?? this.saveTradeSuccess),
+      saveTradeError: clearSaveTradeError
+          ? null
+          : (saveTradeError ?? this.saveTradeError),
     );
   }
 
@@ -88,6 +112,7 @@ class HomeState extends Equatable {
         trades,
         cards,
         subscriptions,
+        rawSubscriptions,
         page,
         hasMore,
         isRefreshing,
@@ -98,5 +123,7 @@ class HomeState extends Equatable {
         filterSegment,
         sort,
         savedTradeIds,
+        saveTradeSuccess,
+        saveTradeError,
       ];
 }

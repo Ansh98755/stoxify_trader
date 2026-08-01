@@ -31,7 +31,6 @@ Future<void> configureDependencies({
   final deviceIds = DeviceIdProvider(storage);
   final signer = await EcdsaRequestSigner.loadDev();
   final dio = buildDio(
-
     signer: signer,
     deviceIds: deviceIds,
     storage: storage,

@@ -19,6 +19,8 @@ class HomeRemoteDataSource {
   Future<HomeFeedPage> fetchFeed({
     required int page,
     String? segment,
+    String status = 'LIVE',
+    String? analystId,
   }) async {
     try {
       final res = await _dio.get<dynamic>(
@@ -27,6 +29,8 @@ class HomeRemoteDataSource {
           'page': page,
           'limit': HomeRepository.pageSize,
           'segment': segment,
+          'status': status,
+          'analyst_id': analystId,
         }),
       );
 
@@ -59,6 +63,121 @@ class HomeRemoteDataSource {
         page: page,
         hasMore: raw.isNotEmpty && loaded < total,
       );
+    } on DioException catch (e) {
+      if (e.type == DioExceptionType.connectionTimeout ||
+          e.type == DioExceptionType.receiveTimeout ||
+          e.type == DioExceptionType.connectionError) {
+        throw const NetworkFailure();
+      }
+      rethrow;
+    }
+  }
+
+  /// GET /trades/{tradeId} -> returns the complete trade, including actions.
+  Future<HomeTrade> fetchTrade(String tradeId) async {
+    try {
+      final res = await _dio.get<dynamic>('/trades/$tradeId');
+      if (res.statusCode == 401) throw const AuthFailure();
+      if (res.statusCode != 200) {
+        throw ServerFailure('Failed to load trade (${res.statusCode})');
+      }
+
+      final data = (res.data as Map).cast<String, dynamic>();
+      final rawTrade = data['trade'] is Map
+          ? (data['trade'] as Map).cast<String, dynamic>()
+          : data;
+      return HomeTradeModel.fromJson(rawTrade);
+    } on DioException catch (e) {
+      if (e.type == DioExceptionType.connectionTimeout ||
+          e.type == DioExceptionType.receiveTimeout ||
+          e.type == DioExceptionType.connectionError) {
+        throw const NetworkFailure();
+      }
+      rethrow;
+    }
+  }
+
+  /// GET /trades/saved/ids  → returns set of saved trade IDs.
+  Future<Set<String>> fetchSavedTradeIds() async {
+    try {
+      final res = await _dio.get<dynamic>('/trades/saved/ids');
+      if (res.statusCode == 401) throw const AuthFailure();
+      if (res.statusCode == 403) return const <String>{};
+      if (res.statusCode != 200) {
+        throw ServerFailure(
+            'Failed to load saved trade IDs (${res.statusCode})');
+      }
+      final data = (res.data as Map).cast<String, dynamic>();
+      final raw = (data['trade_ids'] as List?) ?? const <dynamic>[];
+      return raw.whereType<String>().toSet();
+    } on DioException catch (e) {
+      if (e.type == DioExceptionType.connectionTimeout ||
+          e.type == DioExceptionType.receiveTimeout ||
+          e.type == DioExceptionType.connectionError) {
+        throw const NetworkFailure();
+      }
+      rethrow;
+    }
+  }
+
+  /// GET /trades/saved  → returns list of saved trades.
+  Future<List<HomeTrade>> fetchSavedTrades() async {
+    try {
+      final res = await _dio.get<dynamic>('/trades/saved');
+      if (res.statusCode == 401) throw const AuthFailure();
+      if (res.statusCode == 403) return const <HomeTrade>[];
+      if (res.statusCode != 200) {
+        throw ServerFailure('Failed to load saved trades (${res.statusCode})');
+      }
+      final data = (res.data as Map).cast<String, dynamic>();
+      final raw = (data['trades'] as List?) ?? const <dynamic>[];
+      return raw
+          .whereType<Map>()
+          .map((e) => HomeTradeModel.fromJson(e.cast<String, dynamic>()))
+          .toList();
+    } on DioException catch (e) {
+      if (e.type == DioExceptionType.connectionTimeout ||
+          e.type == DioExceptionType.receiveTimeout ||
+          e.type == DioExceptionType.connectionError) {
+        throw const NetworkFailure();
+      }
+      rethrow;
+    }
+  }
+
+  /// POST /trades/saved  → saves a trade, returns true on success.
+  Future<bool> saveTrade(String tradeId) async {
+    try {
+      final res = await _dio.post<dynamic>(
+        '/trades/saved',
+        data: <String, dynamic>{'trade_id': tradeId},
+      );
+      if (res.statusCode == 401) throw const AuthFailure();
+      if (res.statusCode != 200 && res.statusCode != 201) {
+        throw ServerFailure('Failed to save trade (${res.statusCode})');
+      }
+      final data = (res.data as Map?)?.cast<String, dynamic>() ?? {};
+      return (data['saved'] as bool?) ?? true;
+    } on DioException catch (e) {
+      if (e.type == DioExceptionType.connectionTimeout ||
+          e.type == DioExceptionType.receiveTimeout ||
+          e.type == DioExceptionType.connectionError) {
+        throw const NetworkFailure();
+      }
+      rethrow;
+    }
+  }
+
+  /// DELETE /trades/saved/{tradeId}  → unsaves a trade, returns false on success.
+  Future<bool> unsaveTrade(String tradeId) async {
+    try {
+      final res = await _dio.delete<dynamic>('/trades/saved/$tradeId');
+      if (res.statusCode == 401) throw const AuthFailure();
+      if (res.statusCode != 200 && res.statusCode != 204) {
+        throw ServerFailure('Failed to unsave trade (${res.statusCode})');
+      }
+      final data = (res.data as Map?)?.cast<String, dynamic>() ?? {};
+      return (data['saved'] as bool?) ?? false;
     } on DioException catch (e) {
       if (e.type == DioExceptionType.connectionTimeout ||
           e.type == DioExceptionType.receiveTimeout ||

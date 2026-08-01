@@ -65,12 +65,24 @@ class HomeTradeModel {
       runningPnlPercent: (leg['running_pnl_percent'] as num?)?.toDouble(),
       batchName: _batchName(json['batch']),
       analystName: json['analyst_name'] as String?,
+      logoUrl: json['logo_url'] as String?,
       rationale: (json['rationale'] as String?)?.trim().isNotEmpty == true
           ? (json['rationale'] as String).trim()
           : null,
       nseTimestamp: _date(json['nse_timestamp']) ??
           _date(json['entry_timestamp']) ??
           DateTime.now(),
+      analystAvatarUrl: json['analyst_avatar_url'] as String?,
+      analystWinRate: (json['analyst_win_rate'] as num?)?.toDouble(),
+      targets: planned.map((e) => TradeTarget(
+        price: (e['target_price'] as num?)?.toDouble() ?? 0,
+        bookPercent: (e['book_percent'] as num?)?.toDouble() ?? 100,
+      )).toList(),
+      hitTargets: ((json['hit_targets'] as List?) ?? [])
+          .whereType<String>().toList(),
+      entryTimestamp: _date(json['entry_timestamp']),
+      modifications: _modifications(json['modification_history']),
+      planId: json['plan_id'] as String?,
     );
   }
 
@@ -156,5 +168,20 @@ class HomeTradeModel {
   static DateTime? _date(dynamic v) {
     if (v is String && v.isNotEmpty) return DateTime.tryParse(v)?.toLocal();
     return null;
+  }
+
+  static List<TradeModification> _modifications(dynamic raw) {
+    if (raw is! List) return const <TradeModification>[];
+    return raw.whereType<Map>().map((e) {
+      final map = e.cast<String, dynamic>();
+      return TradeModification(
+        modifiedAt: _date(map['modified_at']) ?? DateTime.now(),
+        modifiedBy: map['modified_by'] as String? ?? '',
+        reason: (map['reason'] as String?)?.trim() ?? '',
+        fieldsChanged: (map['fields_changed'] as Map?)
+                ?.cast<String, dynamic>() ??
+            const <String, dynamic>{},
+      );
+    }).toList();
   }
 }

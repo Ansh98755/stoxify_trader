@@ -13,6 +13,7 @@ import '../../../../core/widgets/app_screen_background.dart';
 import '../../../../core/widgets/bottom_navbar.dart';
 import '../../../../core/widgets/common_batch_card.dart';
 import '../../../home/presentation/widgets/home_search_row.dart';
+import '../../data/models/discover_facets_model.dart';
 import '../bloc/discover_bloc.dart';
 import '../bloc/discover_event.dart';
 import '../bloc/discover_state.dart';
@@ -31,28 +32,17 @@ class _DiscoverPageState extends State<DiscoverPage> {
   late final DiscoverBloc _bloc;
   DiscoverBrowseTab _browseTab = DiscoverBrowseTab.analysts;
   final TextEditingController _searchController = TextEditingController();
-  
+
   AppFilterResult _filters = const AppFilterResult(
     segment: 'All',
     sort: 'Win rate',
   );
 
-  static const List<String> _analystSegments = <String>[
-    'All',
-    'Equity',
-    'F&O',
-    'Intraday',
-    'Swing',
-  ];
+  // Analyst segment and horizon choices now come from
+  // GET /users/analysts/facets.
 
-  static const List<String> _batchSegments = <String>[
-    'All',
-    'Equity',
-    'F&O',
-    'Low risk',
-    'Medium risk',
-  ];
-
+  // Sort options remain local because the facets endpoint does not expose
+  // supported sorting metadata.
   static const List<String> _analystSortOptions = <String>[
     'Win rate',
     'Avg P&L',
@@ -65,6 +55,57 @@ class _DiscoverPageState extends State<DiscoverPage> {
     'Price: high to low',
   ];
 
+  List<String> get _analystSegments => <String>[
+    'All',
+    ...?_bloc.state.analystFacets?.segments.map(_facetLabel),
+  ];
+
+  List<String> get _analystHorizons => <String>[
+    'All',
+    ...?_bloc.state.analystFacets?.horizons.map(_facetLabel),
+  ];
+
+  List<String> get _batchSegments => <String>[
+    'All',
+    ...?_bloc.state.planFacets?.segments.map(_facetLabel),
+  ];
+
+  List<String> get _batchHorizons => <String>[
+    'All',
+    ...?_bloc.state.planFacets?.horizons.map(_facetLabel),
+  ];
+
+  List<String> get _batchRiskLevels => <String>[
+    'All',
+    ...?_bloc.state.planFacets?.riskLevels.map(_facetLabel),
+  ];
+
+  String _facetLabel(DiscoverFacetOption option) {
+    final String value = option.value == 'FNO'
+        ? 'F&O'
+        : option.value
+              .toLowerCase()
+              .split('_')
+              .map(
+                (part) => part.isEmpty
+                    ? part
+                    : '${part[0].toUpperCase()}${part.substring(1)}',
+              )
+              .join(' ');
+    return '$value (${option.count})';
+  }
+
+  String? _selectedFacetValue(
+    String selected,
+    List<DiscoverFacetOption>? options,
+  ) {
+    if (selected == 'All' || options == null) return null;
+    for (final option in options) {
+      if (_facetLabel(option) == selected) return option.value;
+    }
+    return null;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -72,20 +113,52 @@ class _DiscoverPageState extends State<DiscoverPage> {
     _fetchData();
   }
 
-  void _fetchData() {
+  void _fetchData({bool isRefresh = false}) {
     if (_browseTab == DiscoverBrowseTab.analysts) {
-      _bloc.add(DiscoverLoadRequested(
-        search: _searchController.text,
-        segment: _filters.segment,
-        sort: _filters.sort,
-      ));
+      final facets = _bloc.state.analystFacets;
+      _bloc.add(
+        DiscoverLoadRequested(
+          search: _searchController.text,
+          segment: _selectedFacetValue(_filters.segment, facets?.segments),
+          horizon: _selectedFacetValue(_filters.horizon, facets?.horizons),
+          sort: _filters.sort,
+          isRefresh: isRefresh,
+        ),
+      );
     } else {
-      _bloc.add(DiscoverBatchesLoadRequested(
-        search: _searchController.text,
-        segment: _filters.segment,
-        sort: _filters.sort,
-      ));
+      final facets = _bloc.state.planFacets;
+      _bloc.add(
+        DiscoverBatchesLoadRequested(
+          search: _searchController.text,
+          segment: _selectedFacetValue(_filters.segment, facets?.segments),
+          horizon: _selectedFacetValue(_filters.horizon, facets?.horizons),
+          riskLevel: _selectedFacetValue(
+            _filters.riskLevel,
+            facets?.riskLevels,
+          ),
+          sort: _filters.sort,
+          isRefresh: isRefresh,
+        ),
+      );
     }
+  }
+
+  Future<void> _refreshData() async {
+    final Future<DiscoverState> refreshCompleted = _bloc.stream.firstWhere(
+      (state) =>
+          state.status == DiscoverStatus.success ||
+          state.status == DiscoverStatus.failure,
+    );
+    _fetchData(isRefresh: true);
+    await refreshCompleted;
+  }
+
+  Widget _withRefresh(Widget child) {
+    return RefreshIndicator(
+      color: ColorConstants.brandBlue,
+      onRefresh: _refreshData,
+      child: child,
+    );
   }
 
   @override
@@ -95,21 +168,29 @@ class _DiscoverPageState extends State<DiscoverPage> {
     super.dispose();
   }
 
-  List<String> get _segments =>
-      _browseTab == DiscoverBrowseTab.analysts
-          ? _analystSegments
-          : _batchSegments;
+  List<String> get _segments => _browseTab == DiscoverBrowseTab.analysts
+      ? _analystSegments
+      : _batchSegments;
 
-  List<String> get _sortOptions =>
-      _browseTab == DiscoverBrowseTab.analysts
-          ? _analystSortOptions
-          : _batchSortOptions;
+  List<String> get _sortOptions => _browseTab == DiscoverBrowseTab.analysts
+      ? _analystSortOptions
+      : _batchSortOptions;
+
+  List<String> get _horizons => _browseTab == DiscoverBrowseTab.analysts
+      ? _analystHorizons
+      : _batchHorizons;
+
+  List<String> get _riskLevels => _browseTab == DiscoverBrowseTab.analysts
+      ? const <String>[]
+      : _batchRiskLevels;
 
   Future<void> _openFilters() async {
     final result = await showAppFilterDialog(
       context: context,
       initial: _filters,
       segments: _segments,
+      horizons: _horizons,
+      riskLevels: _riskLevels,
       sortOptions: _sortOptions,
     );
     if (result == null || !mounted) return;
@@ -122,6 +203,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
       _browseTab = tab;
       _filters = AppFilterResult(
         segment: 'All',
+        horizon: 'All',
         sort: tab == DiscoverBrowseTab.analysts
             ? _analystSortOptions.first
             : _batchSortOptions.first,
@@ -158,53 +240,100 @@ class _DiscoverPageState extends State<DiscoverPage> {
                         _fetchData();
                       },
                       onFilterTap: _openFilters,
-                      hasActiveFilters: !_filters.isDefault ||
+                      hasActiveFilters:
+                          !_filters.isDefault ||
                           _filters.sort != _sortOptions.first,
                     ),
-                    SizedBox(height: AppSize.h(context, 20)),
+                    SizedBox(height: AppSize.h(context, 12)),
                     Expanded(
                       child: BlocBuilder<DiscoverBloc, DiscoverState>(
                         builder: (context, state) {
                           if (state.status == DiscoverStatus.loading) {
-                            return const Center(child: CircularProgressIndicator());
+                            return const Center(
+                              child: CircularProgressIndicator(),
+                            );
                           }
 
                           if (state.status == DiscoverStatus.failure) {
-                            return _EmptyState(message: 'Error: ${state.error}');
+                            return _withRefresh(
+                              _EmptyState(
+                                message: 'Error: ${state.error}',
+                              ),
+                            );
                           }
 
                           if (_browseTab == DiscoverBrowseTab.analysts) {
-                            final analysts = state.analysts.map((m) => DiscoverUiMapper.toAnalystData(m)).toList();
+                            final analysts = state.analysts
+                                .map((m) => DiscoverUiMapper.toAnalystData(m))
+                                .toList();
                             if (analysts.isEmpty) {
-                              return const _EmptyState(message: 'No analysts match your search');
+                              return _withRefresh(
+                                const _EmptyState(
+                                  message: 'No analysts match your search',
+                                ),
+                              );
                             }
-                            return ListView.separated(
-                              padding: EdgeInsets.only(bottom: AppSize.h(context, 88)),
-                              itemCount: analysts.length,
-                              separatorBuilder: (context, index) => SizedBox(height: AppSize.h(context, 20)),
-                              itemBuilder: (context, index) {
-                                return DiscoverAnalystCard(
-                                  data: analysts[index],
-                                  onTap: () => context.push(AppRoutingName.advisorProfile),
-                                );
-                              },
+                            return _withRefresh(
+                              ListView.separated(
+                                physics:
+                                    const AlwaysScrollableScrollPhysics(),
+                                padding: EdgeInsets.only(
+                                  top: AppSize.h(context, 6),
+                                  bottom: AppSize.h(context, 88),
+                                ),
+                                itemCount: analysts.length,
+                                separatorBuilder: (context, index) =>
+                                    SizedBox(height: AppSize.h(context, 20)),
+                                itemBuilder: (context, index) {
+                                  return DiscoverAnalystCard(
+                                    data: analysts[index],
+                                    onTap: () => context.push(
+                                      AppRoutingName.advisorProfile,
+                                      extra: state.analysts[index],
+                                    ),
+                                  );
+                                },
+                              ),
                             );
                           } else {
-                            final batches = state.batches.map((m) => DiscoverUiMapper.toBatchData(m)).toList();
+                            final batches = state.batches
+                                .map((m) => DiscoverUiMapper.toBatchData(m))
+                                .toList();
                             if (batches.isEmpty) {
-                              return const _EmptyState(message: 'No batches match your search');
+                              return _withRefresh(
+                                const _EmptyState(
+                                  message: 'No batches match your search',
+                                ),
+                              );
                             }
-                            return ListView.separated(
-                              padding: EdgeInsets.only(bottom: AppSize.h(context, 88)),
-                              itemCount: batches.length,
-                              separatorBuilder: (context, index) => SizedBox(height: AppSize.h(context, 20)),
-                              itemBuilder: (context, index) {
-                                return CommonBatchCard(
-                                  data: batches[index],
-                                  onSubscribe: () => context.push(AppRoutingName.subscriptions),
-                                  onTap: () => context.push(AppRoutingName.advisorProfile),
-                                );
-                              },
+                            return _withRefresh(
+                              ListView.separated(
+                                physics:
+                                    const AlwaysScrollableScrollPhysics(),
+                                padding: EdgeInsets.only(
+                                  top: AppSize.h(context, 6),
+                                  bottom: AppSize.h(context, 88),
+                                ),
+                                itemCount: batches.length,
+                                separatorBuilder: (context, index) =>
+                                    SizedBox(height: AppSize.h(context, 20)),
+                                itemBuilder: (context, index) {
+                                  return CommonBatchCard(
+                                    data: batches[index],
+                                    onSubscribe: () => context.push(
+                                      AppRoutingName.subscriptions,
+                                    ),
+                                    onTap: () => context.push(
+                                      AppRoutingName.batchDetails,
+                                      extra: state.batches[index].planId,
+                                    ),
+                                    onAnalystTap: () => context.push(
+                                      AppRoutingName.advisorProfile,
+                                      extra: state.batches[index].analystId,
+                                    ),
+                                  );
+                                },
+                              ),
                             );
                           }
                         },
@@ -240,17 +369,22 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.symmetric(vertical: AppSize.h(context, 40)),
-      child: Center(
-        child: Text(
-          message,
-          style: TextStyleConstants.bodyMedium.copyWith(
-            color: ColorConstants.mute,
-            fontSize: AppSize.sp(context, 13),
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      children: <Widget>[
+        Padding(
+          padding: EdgeInsets.symmetric(vertical: AppSize.h(context, 40)),
+          child: Center(
+            child: Text(
+              message,
+              style: TextStyleConstants.bodyMedium.copyWith(
+                color: ColorConstants.mute,
+                fontSize: AppSize.sp(context, 13),
+              ),
+            ),
           ),
         ),
-      ),
+      ],
     );
   }
 }

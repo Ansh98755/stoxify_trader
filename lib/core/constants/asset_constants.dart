@@ -9,6 +9,7 @@ class AssetConstants {
   static const String notificationIcon = 'assets/icons/notification_icon.png';
   static const String filterIcon = 'assets/icons/filter_icon_home_screen.png';
   static const String batchIcon = 'assets/icons/batch_icon.png';
+  static const String bookmarkIcon = 'assets/icons/bookmark.png';
   static const String winRateAnalystCard =
       'assets/icons/win_rate_analyst_card.png';
   static const String avgPlAnalystCard =

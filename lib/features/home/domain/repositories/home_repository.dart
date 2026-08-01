@@ -19,7 +19,19 @@ abstract class HomeRepository {
   Future<HomeFeedPage> fetchFeed({
     required int page,
     String? segment,
+    String status = 'LIVE',
+    String? analystId,
   });
 
+  Future<HomeTrade> fetchTrade(String tradeId);
+
   Future<List<HomeSubscription>> fetchSubscriptions();
+
+  Future<bool> saveTrade(String tradeId);
+
+  Future<bool> unsaveTrade(String tradeId);
+
+  Future<List<HomeTrade>> fetchSavedTrades();
+
+  Future<Set<String>> fetchSavedTradeIds();
 }

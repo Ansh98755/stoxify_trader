@@ -71,7 +71,7 @@ class _LoginViewState extends State<_LoginView> {
             _isOtpFlowActive = true;
             try {
               _phoneFocusNode.unfocus();
-
+              debugPrint("Hurrayyyy!!!!! Request-otp-working");
               await CommonAppNotificationBar.success(
                 context: context,
                 title: 'OTP sent',
@@ -153,13 +153,6 @@ class _LoginViewState extends State<_LoginView> {
                         fontSize: AppSize.sp(context, 28),
                       ),
                     ),
-                    SizedBox(height: AppSize.h(context, 8)),
-                    // Text(
-                    //   'OTP login — secure and passwordless',
-                    //   style: TextStyleConstants.bodyMedium.copyWith(
-                    //     fontSize: AppSize.sp(context, 14),
-                    //   ),
-                    // ),
                     SizedBox(height: AppSize.h(context, 16)),
                     BlocBuilder<LoginBloc, LoginState>(
                       buildWhen: (previous, current) =>

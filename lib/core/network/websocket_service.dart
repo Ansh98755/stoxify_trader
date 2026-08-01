@@ -66,7 +66,7 @@ class WebSocketService with WidgetsBindingObserver {
       _reconnectAttempts = 0;
       _connecting = false;
 
-      debugPrint('[WS] Connected successfully');
+      debugPrint('[WS] *********** Connected successfully *************');
       _startPing();
 
       _socket!.listen(

@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
-
-import '../../../../core/widgets/common_trading_card.dart';
+import '../../../../../shared/models/trading_card_data.dart';
+// import '../../../../core/widgets/common_trading_card.dart';
 import '../../domain/entities/home_subscription.dart';
 import '../../domain/entities/home_trade.dart';
 import '../widgets/home_subscriptions_strip.dart';
@@ -67,6 +67,8 @@ TradingCardData mapHomeTradeToCard(
     change: _changeLine(trade),
     tradeStatus: trade.statusLabel,
     entry: _money(trade.entry, precise: true),
+    analystName: trade.analystName,
+    logoUrl: trade.logoUrl,
     sl: _money(trade.sl, precise: true),
     target: _money(trade.finalTarget, precise: true),
     estGain: _signedPct(trade.estimatedGainPercent),
@@ -86,7 +88,7 @@ HomeSubscriptionItem mapHomeSubscriptionToItem(HomeSubscription sub) {
       : 'Active until ${DateFormat('dd MMM').format(until)}';
 
   return HomeSubscriptionItem(
-    id: sub.id,
+    id: sub.analystId ?? sub.id,
     initials: sub.initials,
     name: sub.displayName,
     activeUntil: untilLabel,

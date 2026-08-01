@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:get_it/get_it.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../app/routes/app_routing_name.dart';
@@ -7,62 +8,167 @@ import '../../../../core/constants/text_style_constants.dart';
 import '../../../../core/utils/app_size.dart';
 import '../../../../core/widgets/app_screen_background.dart';
 import '../../../../core/widgets/common_batch_card.dart';
+import '../../../../core/widgets/common_button_widget.dart';
 import '../../../../core/widgets/common_trading_card.dart';
-import '../../../../core/widgets/risk_badge.dart';
 import '../../../../core/widgets/sebi_verified_pill.dart';
+import '../../../discover/data/models/discover_analyst_model.dart';
+import '../../../discover/data/models/discover_batch_model.dart';
+import '../../../discover/domain/repositories/discover_repository.dart';
+import '../../../discover/presentation/mappers/discover_ui_mapper.dart';
+import '../../../home/domain/entities/home_trade.dart';
+import '../../../home/domain/repositories/home_repository.dart';
+import '../../../home/presentation/mappers/home_ui_mapper.dart';
 
 class AdvisorProfilePage extends StatefulWidget {
-  const AdvisorProfilePage({super.key});
+  const AdvisorProfilePage({
+    super.key,
+    this.analystId,
+    this.initialProfile,
+  });
+
+  final String? analystId;
+  final DiscoverAnalystModel? initialProfile;
 
   @override
   State<AdvisorProfilePage> createState() => _AdvisorProfilePageState();
 }
 
 class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
+  final DiscoverRepository _discoverRepository =
+      GetIt.instance<DiscoverRepository>();
+  final HomeRepository _homeRepository = GetIt.instance<HomeRepository>();
+  final ScrollController _tradesController = ScrollController();
+
+  DiscoverAnalystModel? _profile;
+  double? _discoverWinRate;
+  List<DiscoverBatchModel> _batches = const <DiscoverBatchModel>[];
+  List<HomeTrade> _trades = const <HomeTrade>[];
   int _tab = 0;
+  int _tradePage = 0;
+  bool _hasMoreTrades = true;
+  bool _loading = true;
+  bool _loadingMoreTrades = false;
+  String? _error;
 
-  static const List<CommonBatchData> _batches = <CommonBatchData>[
-    CommonBatchData(
-      name: 'FNO Batch',
-      risk: RiskLevel.medium,
-      analyst: 'Akash Garg',
-      analystInit: 'AG',
-      sebi: 'INH53999999999',
-      description:
-          'Index and stock F&O calls with NSE timestamps and full modification history.',
-      tags: <String>['F&O', 'Equity', 'Intraday'],
-      price: '₹99',
-      subscriberCount: '34',
-    ),
-    CommonBatchData(
-      name: 'Equity Swing',
-      risk: RiskLevel.low,
-      analyst: 'Akash Garg',
-      analystInit: 'AG',
-      sebi: 'INH53999999999',
-      description: 'Mid-cap equity swing ideas with rationale on every publish.',
-      tags: <String>['Equity', 'Swing'],
-      price: '₹999',
-      subscriberCount: '142',
-    ),
-  ];
+  String? get _analystId {
+    final id = (widget.initialProfile?.userId ?? widget.analystId)?.trim();
+    return id == null || id.isEmpty ? null : id;
+  }
 
-  static const List<TradingCardData> _trades = <TradingCardData>[
-    TradingCardData(
-      symbol: 'NIFTY 100',
-      batchName: 'FNO Batch',
-      currentPrice: '₹25,286',
-      change: '−0.02%',
-      tradeStatus: 'At cost',
-      entry: '₹25,291',
-      sl: '₹25,270',
-      target: '₹25,300',
-      estGain: '+0.04%',
-      liveRet: '−0.02%',
-      segment: 'Intraday',
-      asset: 'Equity',
-    ),
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _tradesController.addListener(_onTradesScroll);
+    _loadProfile();
+  }
+
+  @override
+  void dispose() {
+    _tradesController
+      ..removeListener(_onTradesScroll)
+      ..dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadProfile() async {
+    final analystId = _analystId;
+    if (analystId == null) {
+      setState(() {
+        _loading = false;
+        _error = 'Analyst information is unavailable.';
+      });
+      return;
+    }
+
+    setState(() {
+      _loading = true;
+      _error = null;
+      _tradePage = 0;
+      _hasMoreTrades = true;
+    });
+    try {
+      final profileFuture = widget.initialProfile == null
+          ? _discoverRepository.fetchAnalystProfile(analystId)
+          : Future<DiscoverAnalystModel>.value(widget.initialProfile);
+      final results = await Future.wait<Object>(<Future<Object>>[
+        profileFuture,
+        _discoverRepository.fetchAnalystBatches(analystId),
+        _homeRepository.fetchFeed(
+          page: 1,
+          analystId: analystId,
+          status: 'LIVE,CLOSED',
+        ),
+      ]);
+      if (!mounted) return;
+      final feed = results[2] as HomeFeedPage;
+      final profile = results[0] as DiscoverAnalystModel;
+      setState(() {
+        _profile = profile;
+        _discoverWinRate = profile.winRate;
+        _batches = results[1] as List<DiscoverBatchModel>;
+        _trades = feed.trades;
+        _tradePage = feed.page;
+        _hasMoreTrades = feed.hasMore;
+        _loading = false;
+      });
+      if (widget.initialProfile == null) {
+        _loadDiscoverWinRate(analystId);
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = 'Unable to load this analyst right now.';
+      });
+    }
+  }
+
+  Future<void> _loadDiscoverWinRate(String analystId) async {
+    try {
+      final analysts = await _discoverRepository.fetchAnalysts(page: 1);
+      final matching = analysts.where((item) => item.userId == analystId);
+      if (!mounted || matching.isEmpty) return;
+      setState(() => _discoverWinRate = matching.first.winRate);
+    } catch (_) {
+      // The by-ID profile already provides a backend-derived fallback from
+      // performance.winning_trades / performance.total_trades.
+    }
+  }
+
+  void _onTradesScroll() {
+    if (_tab != 1 || !_tradesController.hasClients) return;
+    final position = _tradesController.position;
+    if (position.pixels >= position.maxScrollExtent - 300) {
+      _loadMoreTrades();
+    }
+  }
+
+  Future<void> _loadMoreTrades() async {
+    final analystId = _analystId;
+    if (analystId == null ||
+        _loadingMoreTrades ||
+        !_hasMoreTrades ||
+        _loading) {
+      return;
+    }
+    setState(() => _loadingMoreTrades = true);
+    try {
+      final page = await _homeRepository.fetchFeed(
+        page: _tradePage + 1,
+        analystId: analystId,
+        status: 'LIVE,CLOSED',
+      );
+      if (!mounted) return;
+      setState(() {
+        _trades = <HomeTrade>[..._trades, ...page.trades];
+        _tradePage = page.page;
+        _hasMoreTrades = page.hasMore;
+        _loadingMoreTrades = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loadingMoreTrades = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -73,289 +179,290 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
           const AppScreenBackground(),
           SafeArea(
             bottom: false,
-            child: Column(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _error != null
+                    ? _ErrorState(message: _error!, onRetry: _loadProfile)
+                    : _buildProfile(context),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProfile(BuildContext context) {
+    final profile = _profile!;
+    final winRate =
+        '${((_discoverWinRate ?? profile.winRate) * 100).round()}%';
+    final averagePnl =
+        '${profile.avgPnlPercent >= 0 ? '+' : ''}${profile.avgPnlPercent}%';
+    final initials = _initials(profile.name);
+
+    return Column(
+      children: <Widget>[
+        Padding(
+          padding: AppSize.insets(context, left: 16, right: 16, top: 4),
+          child: Stack(
+            alignment: Alignment.topCenter,
+            children: <Widget>[
+              Align(
+                alignment: Alignment.topLeft,
+                child: Material(
+                  color: ColorConstants.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppSize.r(context, 12)),
+                    side: const BorderSide(color: ColorConstants.line),
+                  ),
+                  child: InkWell(
+                    onTap: () => context.pop(),
+                    borderRadius:
+                        BorderRadius.circular(AppSize.r(context, 12)),
+                    child: SizedBox(
+                      width: AppSize.r(context, 40),
+                      height: AppSize.r(context, 40),
+                      child: Icon(
+                        Icons.arrow_back_rounded,
+                        size: AppSize.r(context, 20),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Column(
+                children: <Widget>[
+                  _ProfileAvatar(
+                    imageUrl: profile.profilePicUrl,
+                    initials: initials,
+                  ),
+                  SizedBox(height: AppSize.h(context, 8)),
+                  Text(
+                    profile.name,
+                    textAlign: TextAlign.center,
+                    style: TextStyleConstants.cardTitle.copyWith(
+                      fontSize: AppSize.sp(context, 20),
+                    ),
+                  ),
+                  if (profile.sebiLicenseNumber != null) ...<Widget>[
+                    SizedBox(height: AppSize.h(context, 3)),
+                    Text(
+                      profile.sebiLicenseNumber!,
+                      textAlign: TextAlign.center,
+                      style: TextStyleConstants.caption.copyWith(
+                        fontSize: AppSize.sp(context, 12),
+                        fontWeight: FontWeight.w600,
+                        color: ColorConstants.brandBlue,
+                      ),
+                    ),
+                    SizedBox(height: AppSize.h(context, 6)),
+                    const SebiVerifiedPill(),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        ),
+        SizedBox(height: AppSize.h(context, 10)),
+        Padding(
+          padding: AppSize.symmetric(context, horizontal: 16),
+          child: Container(
+            width: double.infinity,
+            padding: AppSize.insets(
+              context,
+              left: 14,
+              right: 14,
+              top: 12,
+              bottom: 12,
+            ),
+            decoration: BoxDecoration(
+              color: ColorConstants.white,
+              borderRadius: BorderRadius.circular(AppSize.r(context, 16)),
+              border: Border.all(color: ColorConstants.line),
+            ),
+            child: Row(
               children: <Widget>[
-                Padding(
-                  padding: AppSize.insets(context, left: 16, right: 16, top: 4),
-                  child: Stack(
-                    alignment: Alignment.topCenter,
-                    children: <Widget>[
-                      Align(
-                        alignment: Alignment.topLeft,
-                        child: Material(
-                          color: ColorConstants.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius:
-                                BorderRadius.circular(AppSize.r(context, 12)),
-                            side: const BorderSide(color: ColorConstants.line),
-                          ),
-                          child: InkWell(
-                            onTap: () => context.pop(),
-                            borderRadius:
-                                BorderRadius.circular(AppSize.r(context, 12)),
-                            child: SizedBox(
-                              width: AppSize.r(context, 40),
-                              height: AppSize.r(context, 40),
-                              child: Icon(
-                                Icons.arrow_back_rounded,
-                                size: AppSize.r(context, 20),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      Column(
-                        children: <Widget>[
-                          Container(
-                            width: AppSize.r(context, 64),
-                            height: AppSize.r(context, 64),
-                            padding: EdgeInsets.all(AppSize.r(context, 2.5)),
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: ColorConstants.brandBlueLight,
-                                width: 2,
-                              ),
-                            ),
-                            child: DecoratedBox(
-                              decoration: const BoxDecoration(
-                                shape: BoxShape.circle,
-                                gradient: LinearGradient(
-                                  colors: <Color>[
-                                    ColorConstants.brandBlueLight,
-                                    ColorConstants.brandBlue,
-                                  ],
-                                ),
-                              ),
-                              child: Center(
-                                child: Text(
-                                  'AG',
-                                  style: TextStyleConstants.cardTitle.copyWith(
-                                    color: ColorConstants.white,
-                                    fontSize: AppSize.sp(context, 18),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                          SizedBox(height: AppSize.h(context, 8)),
-                          Text(
-                            'Akash Garg',
-                            textAlign: TextAlign.center,
-                            style: TextStyleConstants.cardTitle.copyWith(
-                              fontSize: AppSize.sp(context, 20),
-                            ),
-                          ),
-                          SizedBox(height: AppSize.h(context, 3)),
-                          Text(
-                            'INH53999999999',
-                            textAlign: TextAlign.center,
-                            style: TextStyleConstants.caption.copyWith(
-                              fontSize: AppSize.sp(context, 12),
-                              fontWeight: FontWeight.w600,
-                              color: ColorConstants.brandBlue,
-                            ),
-                          ),
-                          SizedBox(height: AppSize.h(context, 6)),
-                          const SebiVerifiedPill(),
-                        ],
-                      ),
-                    ],
-                  ),
+                _Stat(winRate, 'Win rate', ColorConstants.green),
+                _Stat(
+                  averagePnl,
+                  'Avg P&L',
+                  profile.avgPnlPercent < 0
+                      ? ColorConstants.red
+                      : ColorConstants.green,
                 ),
-                SizedBox(height: AppSize.h(context, 10)),
-                Padding(
-                  padding: AppSize.symmetric(context, horizontal: 16),
-                  child: Container(
-                    width: double.infinity,
-                    padding: AppSize.insets(
-                      context,
-                      left: 14,
-                      right: 14,
-                      top: 12,
-                      bottom: 12,
-                    ),
-                    decoration: BoxDecoration(
-                      color: ColorConstants.white,
-                      borderRadius:
-                          BorderRadius.circular(AppSize.r(context, 16)),
-                      border: Border.all(color: ColorConstants.line),
-                      boxShadow: <BoxShadow>[
-                        BoxShadow(
-                          color: ColorConstants.navy.withValues(alpha: 0.04),
-                          blurRadius: AppSize.r(context, 12),
-                          offset: Offset(0, AppSize.h(context, 3)),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        const Row(
-                          children: <Widget>[
-                            _Stat('41%', 'Win rate', ColorConstants.green),
-                            _Stat('+2.93%', 'Avg P&L', ColorConstants.green),
-                            _Stat('27', 'Trades', ColorConstants.ink),
-                            _Stat('34', 'Subscribers', ColorConstants.ink),
-                          ],
-                        ),
-                        // const TaperedHorizontalDivider(verticalPadding: 10),
-                        // Text(
-                        //   'About',
-                        //   style: TextStyleConstants.cardTitleSmall.copyWith(
-                        //     fontSize: AppSize.sp(context, 14),
-                        //   ),
-                        // ),
-                        // SizedBox(height: AppSize.h(context, 5)),
-                        // Text(
-                        //   'Index and stock F&O research with NSE timestamps on every publish. Full modification history and rationale on each call.',
-                        //   style: TextStyleConstants.bodyMedium.copyWith(
-                        //     fontSize: AppSize.sp(context, 12.5),
-                        //     color: ColorConstants.mute,
-                        //     height: 1.4,
-                        //   ),
-                        // ),
-                      ],
-                    ),
-                  ),
+                _Stat(
+                  profile.totalTrades.toString(),
+                  'Trades',
+                  ColorConstants.ink,
                 ),
-                SizedBox(height: AppSize.h(context, 16)),
-                Padding(
-                  padding: AppSize.symmetric(context, horizontal: 16),
-                  child: Row(
-                    children: <Widget>[
-                      Expanded(
-                        child: _ProfileTab(
-                          label: 'Batches & Plans',
-                          selected: _tab == 0,
-                          onTap: () => setState(() => _tab = 0),
-                        ),
-                      ),
-                      SizedBox(width: AppSize.w(context, 8)),
-                      Expanded(
-                        child: _ProfileTab(
-                          label: 'Recent Trades',
-                          selected: _tab == 1,
-                          onTap: () => setState(() => _tab = 1),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                SizedBox(height: AppSize.h(context, 12)),
-                Expanded(
-                  child: ListView(
-                    padding: AppSize.insets(
-                      context,
-                      left: 16,
-                      right: 16,
-                      top: 6,
-                      bottom: 110,
-                    ),
-                    children: _tab == 0
-                        ? _batches
-                            .map(
-                              (CommonBatchData b) => Padding(
-                                padding: EdgeInsets.only(
-                                  bottom: AppSize.h(context, 18),
-                                ),
-                                child: CommonBatchCard(
-                                  data: b,
-                                  showAnalystProfile: false,
-                                  onSubscribe: () => context.push(
-                                    AppRoutingName.subscriptions,
-                                  ),
-                                ),
-                              ),
-                            )
-                            .toList()
-                        : _trades
-                            .map(
-                              (TradingCardData t) => Padding(
-                                padding: EdgeInsets.only(
-                                  bottom: AppSize.h(context, 12),
-                                ),
-                                child: CommonTradingCard(
-                                  data: t,
-                                  onViewDetails: () => context.push(
-                                    AppRoutingName.tradeDetails,
-                                  ),
-                                ),
-                              ),
-                            )
-                            .toList(),
-                  ),
+                _Stat(
+                  profile.totalSubscribers.toString(),
+                  'Subscribers',
+                  ColorConstants.ink,
                 ),
               ],
             ),
           ),
-          // Positioned(
-          //   left: 0,
-          //   right: 0,
-          //   bottom: 0,
-          //   child: Container(
-          //     padding: AppSize.insets(
-          //       context,
-          //       left: 16,
-          //       right: 16,
-          //       top: 12,
-          //       bottom: 16,
-          //     ),
-          //     decoration: BoxDecoration(
-          //       color: ColorConstants.white,
-          //       border: Border(
-          //         top: BorderSide(
-          //           color: ColorConstants.line.withValues(alpha: 0.9),
-          //         ),
-          //       ),
-          //       boxShadow: <BoxShadow>[
-          //         BoxShadow(
-          //           color: ColorConstants.navy.withValues(alpha: 0.08),
-          //           blurRadius: 16,
-          //           offset: const Offset(0, -4),
-          //         ),
-          //       ],
-          //     ),
-          //     child: SafeArea(
-          //       top: false,
-          //       child: Row(
-          //         children: <Widget>[
-          //           Expanded(
-          //             child: Column(
-          //               crossAxisAlignment: CrossAxisAlignment.start,
-          //               mainAxisSize: MainAxisSize.min,
-          //               children: <Widget>[
-          //                 Text(
-          //                   'From',
-          //                   style: TextStyleConstants.caption.copyWith(
-          //                     fontSize: AppSize.sp(context, 11),
-          //                     color: ColorConstants.mute,
-          //                   ),
-          //                 ),
-          //                 Text(
-          //                   '₹99/month',
-          //                   style: TextStyleConstants.cardTitleSmall.copyWith(
-          //                     fontSize: AppSize.sp(context, 17),
-          //                   ),
-          //                 ),
-          //               ],
-          //             ),
-          //           ),
-          //           CommonButtonWidget(
-          //             label: 'Subscribe',
-          //             width: null,
-          //             height: 44,
-          //             borderRadius: 10,
-          //             horizontalPadding: 22,
-          //             onPressed: () =>
-          //                 context.push(AppRoutingName.subscriptions),
-          //           ),
-          //         ],
-          //       ),
-          //     ),
-          //   ),
-          // ),
-        ],
+        ),
+        SizedBox(height: AppSize.h(context, 16)),
+        Padding(
+          padding: AppSize.symmetric(context, horizontal: 16),
+          child: Row(
+            children: <Widget>[
+              Expanded(
+                child: _ProfileTab(
+                  label: 'Batches & Plans',
+                  selected: _tab == 0,
+                  onTap: () => setState(() => _tab = 0),
+                ),
+              ),
+              SizedBox(width: AppSize.w(context, 8)),
+              Expanded(
+                child: _ProfileTab(
+                  label: 'Recent Trades',
+                  selected: _tab == 1,
+                  onTap: () => setState(() => _tab = 1),
+                ),
+              ),
+            ],
+          ),
+        ),
+        SizedBox(height: AppSize.h(context, 12)),
+        Expanded(child: _tab == 0 ? _buildBatches() : _buildTrades()),
+      ],
+    );
+  }
+
+  Widget _buildBatches() {
+    if (_batches.isEmpty) {
+      return const _EmptyList(message: 'No active batches or plans.');
+    }
+    return ListView.builder(
+      padding: AppSize.insets(
+        context,
+        left: 16,
+        right: 16,
+        top: 6,
+        bottom: 110,
+      ),
+      itemCount: _batches.length,
+      itemBuilder: (context, index) {
+        final batch = DiscoverUiMapper.toBatchData(_batches[index]);
+        return Padding(
+          padding: EdgeInsets.only(bottom: AppSize.h(context, 18)),
+          child: CommonBatchCard(
+            data: batch,
+            showAnalystProfile: false,
+            onTap: () => context.push(
+              AppRoutingName.batchDetails,
+              extra: _batches[index].planId,
+            ),
+            onSubscribe: () => context.push(AppRoutingName.subscriptions),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildTrades() {
+    if (_trades.isEmpty) {
+      // Pick the cheapest batch price to show in the CTA
+      String? priceLabel;
+      if (_batches.isNotEmpty) {
+        final cheapest = _batches.reduce(
+          (a, b) => a.startingPrice <= b.startingPrice ? a : b,
+        );
+        final suffix = DiscoverUiMapper.billingSuffix(
+          cheapest.cheapestTier?.billingCycle,
+        );
+        priceLabel = '₹${cheapest.startingPrice.round()}$suffix';
+      }
+      return _SubscribeEmptyState(
+        priceLabel: priceLabel,
+        onSubscribe: () => context.push(AppRoutingName.subscriptions),
+      );
+    }
+    return ListView.builder(
+      controller: _tradesController,
+      padding: AppSize.insets(
+        context,
+        left: 16,
+        right: 16,
+        top: 6,
+        bottom: 110,
+      ),
+      itemCount: _trades.length + (_loadingMoreTrades ? 1 : 0),
+      itemBuilder: (context, index) {
+        if (index == _trades.length) {
+          return const Padding(
+            padding: EdgeInsets.all(16),
+            child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+          );
+        }
+        final trade = _trades[index];
+        return Padding(
+          padding: EdgeInsets.only(bottom: AppSize.h(context, 12)),
+          child: CommonTradingCard(
+            data: mapHomeTradeToCard(trade),
+            onViewDetails: () => context.push(
+              AppRoutingName.tradeDetails,
+              extra: trade,
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  String _initials(String name) {
+    final parts =
+        name.trim().split(RegExp(r'\s+')).where((part) => part.isNotEmpty);
+    return parts.take(2).map((part) => part[0].toUpperCase()).join();
+  }
+}
+
+class _ProfileAvatar extends StatelessWidget {
+  const _ProfileAvatar({required this.imageUrl, required this.initials});
+
+  final String? imageUrl;
+  final String initials;
+
+  @override
+  Widget build(BuildContext context) {
+    final fallback = Center(
+      child: Text(
+        initials,
+        style: TextStyleConstants.cardTitle.copyWith(
+          color: ColorConstants.white,
+          fontSize: AppSize.sp(context, 18),
+        ),
+      ),
+    );
+    return Container(
+      width: AppSize.r(context, 64),
+      height: AppSize.r(context, 64),
+      padding: EdgeInsets.all(AppSize.r(context, 2.5)),
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: ColorConstants.brandBlueLight, width: 2),
+      ),
+      child: DecoratedBox(
+        decoration: const BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: LinearGradient(
+            colors: <Color>[
+              ColorConstants.brandBlueLight,
+              ColorConstants.brandBlue,
+            ],
+          ),
+        ),
+        child: ClipOval(
+          child: imageUrl == null
+              ? fallback
+              : Image.network(
+                  imageUrl!,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) => fallback,
+                ),
+        ),
       ),
     );
   }
@@ -433,6 +540,152 @@ class _ProfileTab extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _SubscribeEmptyState extends StatefulWidget {
+  const _SubscribeEmptyState({
+    required this.onSubscribe,
+    this.priceLabel,
+  });
+
+  final VoidCallback onSubscribe;
+  final String? priceLabel;
+
+  @override
+  State<_SubscribeEmptyState> createState() => _SubscribeEmptyStateState();
+}
+
+class _SubscribeEmptyStateState extends State<_SubscribeEmptyState>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _fade;
+  late final Animation<Offset> _slide;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    );
+    _fade = CurvedAnimation(parent: _controller, curve: Curves.easeOut);
+    _slide = Tween<Offset>(
+      begin: const Offset(0, 0.18),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
+    _controller.forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final price = widget.priceLabel;
+    return Center(
+      child: FadeTransition(
+        opacity: _fade,
+        child: SlideTransition(
+          position: _slide,
+          child: Padding(
+            padding: AppSize.symmetric(context, horizontal: 32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Container(
+                  width: AppSize.r(context, 72),
+                  height: AppSize.r(context, 72),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: ColorConstants.brandBlue.withValues(alpha: 0.08),
+                  ),
+                  child: Icon(
+                    Icons.lock_outline_rounded,
+                    size: AppSize.r(context, 32),
+                    color: ColorConstants.brandBlue,
+                  ),
+                ),
+                SizedBox(height: AppSize.h(context, 16)),
+                Text(
+                  'Subscribe to view analyst\'s trades',
+                  textAlign: TextAlign.center,
+                  style: TextStyleConstants.bodyMedium.copyWith(
+                    fontSize: AppSize.sp(context, 15),
+                    fontWeight: FontWeight.w700,
+                    color: ColorConstants.ink,
+                  ),
+                ),
+                SizedBox(height: AppSize.h(context, 8)),
+                Text(
+                  price != null
+                      ? 'Get live & past trade signals from this analyst starting at $price.'
+                      : 'Get live & past trade signals from this analyst.',
+                  textAlign: TextAlign.center,
+                  style: TextStyleConstants.bodyMedium.copyWith(
+                    fontSize: AppSize.sp(context, 13),
+                    color: ColorConstants.mute,
+                    height: 1.45,
+                  ),
+                ),
+                SizedBox(height: AppSize.h(context, 24)),
+                CommonButtonWidget(
+                  label: price != null ? 'Subscribe from $price' : 'Subscribe',
+                  onPressed: widget.onSubscribe,
+                  width: null,
+                  height: AppSize.h(context, 46),
+                  borderRadius: 14,
+                  horizontalPadding: 28,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyList extends StatelessWidget {
+  const _EmptyList({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Text(
+        message,
+        style: TextStyleConstants.bodyMedium.copyWith(
+          color: ColorConstants.mute,
+          fontSize: AppSize.sp(context, 13),
+        ),
+      ),
+    );
+  }
+}
+
+class _ErrorState extends StatelessWidget {
+  const _ErrorState({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Text(message),
+          const SizedBox(height: 12),
+          FilledButton(onPressed: onRetry, child: const Text('Retry')),
+        ],
       ),
     );
   }

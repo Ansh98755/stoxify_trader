@@ -8,16 +8,16 @@ import '../widgets/discover_analyst_card.dart';
 class DiscoverUiMapper {
   static DiscoverAnalystData toAnalystData(DiscoverAnalystModel model) {
     return DiscoverAnalystData(
+      userId: model.userId,
       name: model.name,
       initials: _getInitials(model.name),
-      sebi: model.sebiLicenseNumber ?? 'SEBI-registered',
-      subtitle: model.specialization.isNotEmpty
-          ? model.specialization.first
-          : 'SEBI-registered analyst',
+      sebi: model.sebiLicenseNumber,
+      subtitle: _registrationTypeLabel(model.registrationType),
+      profilePicUrl: model.profilePicUrl,
       winRate: '${(model.winRate * 100).round()}%',
       avgPnl: '${model.avgPnlPercent >= 0 ? '+' : ''}${model.avgPnlPercent}%',
       subscribers: _formatSubscribers(model.totalSubscribers),
-      tags: [...model.segmentsCovered, ...model.specialization].take(3).toList(),
+      tags: model.segmentsCovered.take(3).toList(),
       avatarStart: ColorConstants.brandBlueLight,
       avatarEnd: ColorConstants.brandBlue,
     );
@@ -35,9 +35,12 @@ class DiscoverUiMapper {
       analystInit: _getInitials(model.analystName),
       sebi: model.analystSebiNumber ?? '',
       description: model.description ?? '',
-      tags: model.segments.take(3).toList(),
+      tags: <String>[...model.segments, ...model.horizons].take(4).toList(),
       price: '₹${model.startingPrice.round()}',
-      subscriberCount: _formatSubscribers(model.subscriberCount ?? 0),
+      subscriberCount: model.subscriberCount == null
+          ? null
+          : _formatSubscribers(model.subscriberCount!),
+      priceSuffix: billingSuffix(model.cheapestTier?.billingCycle),
       avatarStart: ColorConstants.brandBlueLight,
       avatarEnd: ColorConstants.brandBlue,
     );
@@ -52,10 +55,30 @@ class DiscoverUiMapper {
     return name.substring(0, 1).toUpperCase();
   }
 
+  static String _registrationTypeLabel(String? value) {
+    if (value == null || value.isEmpty) return '';
+    return value
+        .split('_')
+        .where((part) => part.isNotEmpty)
+        .map((part) => '${part[0].toUpperCase()}${part.substring(1)}')
+        .join(' ');
+  }
+
   static String _formatSubscribers(int count) {
     if (count >= 1000) {
       return '${(count / 1000).toStringAsFixed(1)}K';
     }
     return count.toString();
+  }
+
+  static String billingSuffix(String? billingCycle) {
+    return switch (billingCycle?.toUpperCase()) {
+      'DAY' => '/day',
+      'WEEK' => '/week',
+      'MONTH' => '/month',
+      'QUARTER' => '/quarter',
+      'YEAR' => '/year',
+      _ => '',
+    };
   }
 }

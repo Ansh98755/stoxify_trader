@@ -10,17 +10,29 @@ class AppFilterResult {
   const AppFilterResult({
     required this.segment,
     required this.sort,
+    this.horizon = 'All',
+    this.riskLevel = 'All',
   });
 
   final String segment;
   final String sort;
+  final String horizon;
+  final String riskLevel;
 
-  bool get isDefault => segment == 'All';
+  bool get isDefault =>
+      segment == 'All' && horizon == 'All' && riskLevel == 'All';
 
-  AppFilterResult copyWith({String? segment, String? sort}) {
+  AppFilterResult copyWith({
+    String? segment,
+    String? sort,
+    String? horizon,
+    String? riskLevel,
+  }) {
     return AppFilterResult(
       segment: segment ?? this.segment,
       sort: sort ?? this.sort,
+      horizon: horizon ?? this.horizon,
+      riskLevel: riskLevel ?? this.riskLevel,
     );
   }
 }
@@ -30,6 +42,8 @@ Future<AppFilterResult?> showAppFilterDialog({
   required AppFilterResult initial,
   required List<String> segments,
   required List<String> sortOptions,
+  List<String> horizons = const <String>[],
+  List<String> riskLevels = const <String>[],
 }) {
   return showGeneralDialog<AppFilterResult>(
     context: context,
@@ -37,43 +51,47 @@ Future<AppFilterResult?> showAppFilterDialog({
     barrierLabel: 'Filters',
     barrierColor: ColorConstants.scrim,
     transitionDuration: const Duration(milliseconds: 280),
-    pageBuilder: (
-      BuildContext context,
-      Animation<double> animation,
-      Animation<double> secondaryAnimation,
-    ) {
-      return const SizedBox.shrink();
-    },
-    transitionBuilder: (
-      BuildContext context,
-      Animation<double> animation,
-      Animation<double> secondaryAnimation,
-      Widget child,
-    ) {
-      final curved = CurvedAnimation(
-        parent: animation,
-        curve: Curves.easeOutCubic,
-        reverseCurve: Curves.easeInCubic,
-      );
+    pageBuilder:
+        (
+          BuildContext context,
+          Animation<double> animation,
+          Animation<double> secondaryAnimation,
+        ) {
+          return const SizedBox.shrink();
+        },
+    transitionBuilder:
+        (
+          BuildContext context,
+          Animation<double> animation,
+          Animation<double> secondaryAnimation,
+          Widget child,
+        ) {
+          final curved = CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+            reverseCurve: Curves.easeInCubic,
+          );
 
-      return FadeTransition(
-        opacity: curved,
-        child: SlideTransition(
-          position: Tween<Offset>(
-            begin: const Offset(0.08, 0.04),
-            end: Offset.zero,
-          ).animate(curved),
-          child: ScaleTransition(
-            scale: Tween<double>(begin: 0.94, end: 1).animate(curved),
-            child: _AppFilterDialog(
-              initial: initial,
-              segments: segments,
-              sortOptions: sortOptions,
+          return FadeTransition(
+            opacity: curved,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0.08, 0.04),
+                end: Offset.zero,
+              ).animate(curved),
+              child: ScaleTransition(
+                scale: Tween<double>(begin: 0.94, end: 1).animate(curved),
+                child: _AppFilterDialog(
+                  initial: initial,
+                  segments: segments,
+                  horizons: horizons,
+                  riskLevels: riskLevels,
+                  sortOptions: sortOptions,
+                ),
+              ),
             ),
-          ),
-        ),
-      );
-    },
+          );
+        },
   );
 }
 
@@ -81,11 +99,15 @@ class _AppFilterDialog extends StatefulWidget {
   const _AppFilterDialog({
     required this.initial,
     required this.segments,
+    required this.horizons,
+    required this.riskLevels,
     required this.sortOptions,
   });
 
   final AppFilterResult initial;
   final List<String> segments;
+  final List<String> horizons;
+  final List<String> riskLevels;
   final List<String> sortOptions;
 
   @override
@@ -95,18 +117,24 @@ class _AppFilterDialog extends StatefulWidget {
 class _AppFilterDialogState extends State<_AppFilterDialog> {
   late String _segment;
   late String _sort;
+  late String _horizon;
+  late String _riskLevel;
 
   @override
   void initState() {
     super.initState();
     _segment = widget.initial.segment;
     _sort = widget.initial.sort;
+    _horizon = widget.initial.horizon;
+    _riskLevel = widget.initial.riskLevel;
   }
 
   void _reset() {
     setState(() {
       _segment = 'All';
       _sort = widget.sortOptions.first;
+      _horizon = 'All';
+      _riskLevel = 'All';
     });
   }
 
@@ -124,9 +152,7 @@ class _AppFilterDialogState extends State<_AppFilterDialog> {
               side: const BorderSide(color: ColorConstants.line),
             ),
             child: ConstrainedBox(
-              constraints: BoxConstraints(
-                maxWidth: AppSize.w(context, 360),
-              ),
+              constraints: BoxConstraints(maxWidth: AppSize.w(context, 360)),
               child: Padding(
                 padding: AppSize.insets(
                   context,
@@ -152,12 +178,14 @@ class _AppFilterDialogState extends State<_AppFilterDialog> {
                         ),
                         Material(
                           color: ColorConstants.gray50,
-                          borderRadius:
-                              BorderRadius.circular(AppSize.r(context, 8)),
+                          borderRadius: BorderRadius.circular(
+                            AppSize.r(context, 8),
+                          ),
                           child: InkWell(
                             onTap: () => Navigator.of(context).pop(),
-                            borderRadius:
-                                BorderRadius.circular(AppSize.r(context, 8)),
+                            borderRadius: BorderRadius.circular(
+                              AppSize.r(context, 8),
+                            ),
                             child: SizedBox(
                               width: AppSize.r(context, 28),
                               height: AppSize.r(context, 28),
@@ -194,6 +222,57 @@ class _AppFilterDialogState extends State<_AppFilterDialog> {
                           )
                           .toList(),
                     ),
+                    if (widget.horizons.isNotEmpty) ...<Widget>[
+                      SizedBox(height: AppSize.h(context, 16)),
+                      Text(
+                        'Horizon',
+                        style: TextStyleConstants.caption.copyWith(
+                          fontSize: AppSize.sp(context, 11),
+                          fontWeight: FontWeight.w600,
+                          color: ColorConstants.mute,
+                        ),
+                      ),
+                      SizedBox(height: AppSize.h(context, 8)),
+                      Wrap(
+                        spacing: AppSize.w(context, 8),
+                        runSpacing: AppSize.h(context, 8),
+                        children: widget.horizons
+                            .map(
+                              (String label) => FilterChipPill(
+                                label: label,
+                                selected: _horizon == label,
+                                onTap: () => setState(() => _horizon = label),
+                              ),
+                            )
+                            .toList(),
+                      ),
+                    ],
+                    if (widget.riskLevels.isNotEmpty) ...<Widget>[
+                      SizedBox(height: AppSize.h(context, 16)),
+                      Text(
+                        'Risk level',
+                        style: TextStyleConstants.caption.copyWith(
+                          fontSize: AppSize.sp(context, 11),
+                          fontWeight: FontWeight.w600,
+                          color: ColorConstants.mute,
+                        ),
+                      ),
+                      SizedBox(height: AppSize.h(context, 8)),
+                      Wrap(
+                        spacing: AppSize.w(context, 8),
+                        runSpacing: AppSize.h(context, 8),
+                        children: widget.riskLevels
+                            .map(
+                              (String label) => FilterChipPill(
+                                label: label,
+                                selected: _riskLevel == label,
+                                onTap: () =>
+                                    setState(() => _riskLevel = label),
+                              ),
+                            )
+                            .toList(),
+                      ),
+                    ],
                     SizedBox(height: AppSize.h(context, 16)),
                     Text(
                       'Sort by',
@@ -228,7 +307,12 @@ class _AppFilterDialogState extends State<_AppFilterDialog> {
                             borderRadius: 10,
                             onPressed: () {
                               Navigator.of(context).pop(
-                                AppFilterResult(segment: _segment, sort: _sort),
+                                AppFilterResult(
+                                  segment: _segment,
+                                  sort: _sort,
+                                  horizon: _horizon,
+                                  riskLevel: _riskLevel,
+                                ),
                               );
                             },
                           ),

@@ -2,15 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/advisor/presentation/pages/advisor_profile_page.dart';
+import '../../features/advisor/presentation/pages/batch_details_page.dart';
 import '../../features/auth/presentation/pages/interest_page.dart';
 import '../../features/auth/presentation/pages/login_page.dart';
 import '../../features/auth/presentation/pages/otp_page.dart';
 import '../../features/discover/presentation/pages/discover_page.dart';
+import '../../features/discover/data/models/discover_analyst_model.dart';
+import '../../features/home/domain/entities/home_trade.dart';
 import '../../features/home/presentation/pages/home_page.dart';
 import '../../features/notifications/presentation/pages/notifications_page.dart';
 import '../../features/onboarding/presentation/pages/onboarding_page.dart';
 import '../../features/profile/presentation/pages/profile_page.dart';
 import '../../features/search/presentation/pages/search_page.dart';
+import '../../features/saved_trades/presentation/pages/saved_trades_page.dart';
 import '../../features/settings/presentation/pages/settings_page.dart';
 import '../../features/splash/presentation/pages/splash_page.dart';
 import '../../features/subscriptions/presentation/pages/my_subscriptions_page.dart';
@@ -97,12 +101,27 @@ class AppRouting {
       GoRoute(
         path: AppRoutingName.advisorProfile,
         name: AppRoutingName.advisorProfile,
-        builder: (_, _) => const AdvisorProfilePage(),
+        builder: (_, state) {
+          final extra = state.extra;
+          return AdvisorProfilePage(
+            analystId: extra is String ? extra : null,
+            initialProfile:
+                extra is DiscoverAnalystModel ? extra : null,
+          );
+        },
+      ),
+      GoRoute(
+        path: AppRoutingName.batchDetails,
+        name: AppRoutingName.batchDetails,
+        builder: (_, state) => BatchDetailsPage(
+          planId: state.extra is String ? state.extra as String : null,
+        ),
       ),
       GoRoute(
         path: AppRoutingName.tradeDetails,
-        name: AppRoutingName.tradeDetails,
-        builder: (_, _) => const TradeDetailsPage(),
+        builder: (context, state) => TradeDetailsPage(
+          trade: state.extra is HomeTrade ? state.extra as HomeTrade : null,
+        ),
       ),
       GoRoute(
         path: AppRoutingName.subscriptions,
@@ -118,6 +137,11 @@ class AppRouting {
         path: AppRoutingName.mySubscriptions,
         name: AppRoutingName.mySubscriptions,
         builder: (_, _) => const MySubscriptionsPage(),
+      ),
+      GoRoute(
+        path: AppRoutingName.savedTrades,
+        name: AppRoutingName.savedTrades,
+        builder: (_, _) => const SavedTradesPage(),
       ),
     ],
     errorBuilder: (BuildContext context, GoRouterState state) {

@@ -1,12 +1,13 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../data/models/discover_facets_model.dart';
 import '../../domain/repositories/discover_repository.dart';
 import 'discover_event.dart';
 import 'discover_state.dart';
 
 class DiscoverBloc extends Bloc<DiscoverEvent, DiscoverState> {
   DiscoverBloc({required DiscoverRepository repository})
-      : _repository = repository,
-        super(const DiscoverState()) {
+    : _repository = repository,
+      super(const DiscoverState()) {
     on<DiscoverLoadRequested>(_onLoadRequested);
     on<DiscoverBatchesLoadRequested>(_onBatchesLoadRequested);
   }
@@ -17,23 +18,37 @@ class DiscoverBloc extends Bloc<DiscoverEvent, DiscoverState> {
     DiscoverLoadRequested event,
     Emitter<DiscoverState> emit,
   ) async {
-    emit(state.copyWith(status: DiscoverStatus.loading));
+    if (!event.isRefresh) {
+      emit(state.copyWith(status: DiscoverStatus.loading));
+    }
     try {
-      final analysts = await _repository.fetchAnalysts(
+      final analystsFuture = _repository.fetchAnalysts(
         page: 1,
         search: event.search,
         segment: event.segment,
+        horizon: event.horizon,
         sort: event.sort,
       );
-      emit(state.copyWith(
-        status: DiscoverStatus.success,
-        analysts: analysts,
-      ));
+      final facetsFuture = state.analystFacets == null
+          ? _repository.fetchAnalystFacets()
+          : Future.value(state.analystFacets!);
+
+      final analysts = await analystsFuture;
+      DiscoverAnalystFacets? facets;
+      try {
+        facets = await facetsFuture;
+      } catch (_) {
+        facets = state.analystFacets;
+      }
+      emit(
+        state.copyWith(
+          status: DiscoverStatus.success,
+          analysts: analysts,
+          analystFacets: facets,
+        ),
+      );
     } catch (e) {
-      emit(state.copyWith(
-        status: DiscoverStatus.failure,
-        error: e.toString(),
-      ));
+      emit(state.copyWith(status: DiscoverStatus.failure, error: e.toString()));
     }
   }
 
@@ -41,23 +56,37 @@ class DiscoverBloc extends Bloc<DiscoverEvent, DiscoverState> {
     DiscoverBatchesLoadRequested event,
     Emitter<DiscoverState> emit,
   ) async {
-    emit(state.copyWith(status: DiscoverStatus.loading));
+    if (!event.isRefresh) {
+      emit(state.copyWith(status: DiscoverStatus.loading));
+    }
     try {
-      final batches = await _repository.fetchBatches(
+      final batchesFuture = _repository.fetchBatches(
         page: 1,
         search: event.search,
         segment: event.segment,
+        horizon: event.horizon,
+        riskLevel: event.riskLevel,
         sort: event.sort,
       );
-      emit(state.copyWith(
-        status: DiscoverStatus.success,
-        batches: batches,
-      ));
+      final facetsFuture = state.planFacets == null
+          ? _repository.fetchPlanFacets()
+          : Future.value(state.planFacets!);
+      final batches = await batchesFuture;
+      DiscoverPlanFacets? facets;
+      try {
+        facets = await facetsFuture;
+      } catch (_) {
+        facets = state.planFacets;
+      }
+      emit(
+        state.copyWith(
+          status: DiscoverStatus.success,
+          batches: batches,
+          planFacets: facets,
+        ),
+      );
     } catch (e) {
-      emit(state.copyWith(
-        status: DiscoverStatus.failure,
-        error: e.toString(),
-      ));
+      emit(state.copyWith(status: DiscoverStatus.failure, error: e.toString()));
     }
   }
 }

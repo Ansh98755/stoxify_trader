@@ -9,6 +9,7 @@ class AppRoutingName {
   static const String home = '/home';
   static const String discover = '/discover';
   static const String advisorProfile = '/advisor-profile';
+  static const String batchDetails = '/batch-details';
   static const String tradeFeed = '/trade-feed';
   static const String tradeDetails = '/trade-details';
   static const String subscriptions = '/subscriptions';
@@ -18,4 +19,5 @@ class AppRoutingName {
   static const String profile = '/profile';
   static const String settings = '/settings';
   static const String mySubscriptions = '/my-subscriptions';
+  static const String savedTrades = '/saved-trades';
 }

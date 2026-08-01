@@ -1,106 +1,279 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 
 import '../../../../app/routes/app_routing_name.dart';
 import '../../../../core/constants/color_constants.dart';
 import '../../../../core/constants/text_style_constants.dart';
+import '../../../../core/di/injection.dart';
+import '../../../../core/services/live_prices_service.dart';
 import '../../../../core/utils/app_size.dart';
 import '../../../../core/widgets/app_chrome.dart';
+import '../../../../core/widgets/common_app_notification_bar.dart';
 import '../../../../core/widgets/app_screen_background.dart';
 import '../../../../core/widgets/common_button_widget.dart';
 import '../../../../core/widgets/sebi_verified_pill.dart';
 import '../../../../core/widgets/tapered_divider.dart';
 import '../../../../core/widgets/trade_signal_timeline.dart';
+import '../../../home/domain/entities/home_trade.dart';
+import '../../../home/domain/repositories/home_repository.dart';
 
-class TradeDetailsPage extends StatelessWidget {
-  const TradeDetailsPage({super.key});
+final _inrPrecise = NumberFormat.currency(
+  locale: 'en_IN',
+  symbol: '₹',
+  decimalDigits: 2,
+);
 
-  static const _SignalDetails _data = _SignalDetails(
-    symbol: 'Tata Motors',
-    company: 'Tata Motors Ltd.',
-    exchange: 'NSE',
-    initials: 'TM',
-    currentPrice: '₹985.20',
-    change: '+₹23.40 (+1.18%)',
-    isProfit: true,
-    batchName: 'Equity Swing Pro',
-    category: 'Swing',
-    estimatedRisk: '-6.02%',
-    liveReturn: '+3.97%',
-    signalType: 'Analyst research',
-    entry: '₹978',
-    sl: '₹952',
-    target: '₹1,045',
-    direction: 'LONG',
-    segment: 'Equity',
-    entryDateTime: '23 Jul 2026, 1:56 PM',
-    status: 'In profit',
-    statusIsNeutral: false,
-    entryZone: '₹962.80 - ₹994.40',
-    exitZone: '₹1,020.00 - ₹1,070.00',
-    nseTimestamp: '2026-07-23T13:56:11+05:30',
-    rationale:
-        'Price holding above entry with stable volume. Review the stop-loss before deciding next steps.',
-    advisorName: 'Arjun Mehta',
-    advisorInitials: 'AM',
-    advisorSegmentTag: 'SWING',
-    sebiReg: 'INH53999999999',
-    actions: <_TradeAction>[
-      _TradeAction(
-        title: 'Target update',
-        price: '₹1,045.00',
-        updatedAt: 'Jul 23, 2026 2:10 PM',
-      ),
-    ],
-  );
+String _money(double v) => _inrPrecise.format(v);
+String _signedPct(double? v) {
+  if (v == null) return '—';
+  final sign = v >= 0 ? '+' : '';
+  return '$sign${v.toStringAsFixed(2)}%';
+}
+
+String _riskRewardRatio(HomeTrade? trade) {
+  if (trade == null) return '—';
+
+  final double risk = (trade.entry - trade.sl).abs();
+  final double reward = (trade.finalTarget - trade.entry).abs();
+  if (risk <= 0 || reward <= 0) return '—';
+
+  return '1 : ${(reward / risk).toStringAsFixed(2)}';
+}
+
+String _modificationFieldLabel(String field) {
+  return field
+      .split('_')
+      .where((part) => part.isNotEmpty)
+      .map((part) => '${part[0].toUpperCase()}${part.substring(1)}')
+      .join(' ');
+}
+
+String _formatModifiedTargets(dynamic value) {
+  if (value is! List || value.isEmpty) return '—';
+
+  return value.asMap().entries.map((entry) {
+    final dynamic rawTarget = entry.value;
+    if (rawTarget is! Map) return 'T${entry.key + 1}: —';
+
+    final dynamic priceRaw =
+        rawTarget['target_price'] ?? rawTarget['price'] ?? rawTarget['target'];
+    final dynamic percentRaw =
+        rawTarget['book_percent'] ?? rawTarget['bookPercent'];
+    final double? price = priceRaw is num
+        ? priceRaw.toDouble()
+        : double.tryParse(priceRaw?.toString() ?? '');
+    final double? percent = percentRaw is num
+        ? percentRaw.toDouble()
+        : double.tryParse(percentRaw?.toString() ?? '');
+
+    final String priceText = price == null ? '—' : _money(price);
+    final String percentText =
+        percent == null ? '—' : '${percent.toStringAsFixed(0)}%';
+    return 'T${entry.key + 1}: $priceText\nBook percent: $percentText';
+  }).join('\n\n');
+}
+
+String _formatModificationValue(String field, dynamic value) {
+  if (value == null) return '—';
+  if (field.toLowerCase() == 'targets') {
+    return _formatModifiedTargets(value);
+  }
+
+  const Set<String> priceFields = <String>{
+    'target',
+    'target_price',
+    'entry',
+    'entry_price',
+    'sl',
+    'stop_loss',
+  };
+  if (priceFields.contains(field.toLowerCase())) {
+    final double? price = value is num
+        ? value.toDouble()
+        : double.tryParse(value.toString());
+    if (price != null) return _money(price);
+  }
+
+  return value.toString();
+}
+
+String _formatDate(DateTime? dt) {
+  if (dt == null) return '—';
+  return DateFormat('dd MMM yyyy, h:mm a').format(dt.toLocal());
+}
+
+class TradeDetailsPage extends StatefulWidget {
+  const TradeDetailsPage({super.key, this.trade});
+
+  final HomeTrade? trade;
+
+  @override
+  State<TradeDetailsPage> createState() => _TradeDetailsPageState();
+}
+
+class _TradeDetailsPageState extends State<TradeDetailsPage> {
+  StreamSubscription<Map<String, double>>? _pricesSubscription;
+  late HomeTrade? _trade;
+  bool _isLoadingDetails = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _trade = widget.trade;
+    final LivePricesService livePrices = getIt<LivePricesService>();
+    livePrices.start();
+    livePrices.trackAdditional(<String>[widget.trade?.symbol ?? '']);
+    _applyLivePrices(livePrices.current);
+    _pricesSubscription = livePrices.pricesStream.listen(_applyLivePrices);
+    _loadTradeDetails();
+  }
+
+  @override
+  void didUpdateWidget(covariant TradeDetailsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.trade?.id != widget.trade?.id) {
+      _trade = widget.trade;
+      final LivePricesService livePrices = getIt<LivePricesService>();
+      livePrices.trackAdditional(<String>[widget.trade?.symbol ?? '']);
+      _applyLivePrices(livePrices.current);
+      _loadTradeDetails();
+    }
+  }
+
+  Future<void> _loadTradeDetails() async {
+    final String? tradeId = _trade?.id;
+    if (tradeId == null || tradeId.isEmpty) return;
+
+    setState(() => _isLoadingDetails = true);
+    try {
+      final HomeTrade trade =
+          await getIt<HomeRepository>().fetchTrade(tradeId);
+      if (!mounted || _trade?.id != tradeId) return;
+
+      final LivePricesService livePrices = getIt<LivePricesService>();
+      setState(() {
+        _trade = trade;
+        _isLoadingDetails = false;
+      });
+      livePrices.trackAdditional(<String>[trade.symbol]);
+      _applyLivePrices(livePrices.current);
+    } catch (_) {
+      if (mounted && _trade?.id == tradeId) {
+        setState(() => _isLoadingDetails = false);
+      }
+    }
+  }
+
+  void _applyLivePrices(Map<String, double> prices) {
+    final HomeTrade? trade = _trade;
+    if (trade == null || prices.isEmpty) return;
+
+    double? price = prices[trade.symbol];
+    price ??= prices[trade.symbol.split(' / ').first.trim()];
+    if (price == null || price == trade.ltp || !mounted) return;
+
+    setState(() => _trade = trade.copyWith(ltp: price));
+  }
+
+  @override
+  void dispose() {
+    _pricesSubscription?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final d = _data;
-    final Color changeColor =
-        d.isProfit ? ColorConstants.green : ColorConstants.red;
-    final Color statusColor = d.statusIsNeutral
-        ? ColorConstants.amber
-        : (d.isProfit ? ColorConstants.green : ColorConstants.red);
-    final Color directionColor = d.direction.toUpperCase().contains('SHORT')
+    final t = _trade;
+
+    // Fallback values when no trade passed
+    final symbol = t?.symbol ?? '—';
+    final company = t?.companyName ?? t?.symbol ?? '—';
+    final initials = symbol.length >= 2
+        ? symbol.substring(0, 2).toUpperCase()
+        : symbol.toUpperCase();
+
+    final currentPrice = t?.ltp ?? t?.entry ?? 0;
+    final pnl = t == null
+        ? null
+        : t.state == HomeTradeState.live
+            ? (t.ltpPnlPercent ?? t.currentPnlPercent)
+            : t.currentPnlPercent;
+    final isProfit = (pnl ?? 0) >= 0;
+    final changeColor = isProfit ? ColorConstants.green : ColorConstants.red;
+    final pnlText = _signedPct(pnl);
+
+    final direction = t?.direction == HomeTradeDirection.short ? 'SHORT' : 'LONG';
+    final directionColor = t?.direction == HomeTradeDirection.short
         ? ColorConstants.red
         : ColorConstants.green;
+
+    final statusLabel = t == null
+        ? '—'
+        : t.state == HomeTradeState.live && pnl != null
+            ? pnl > 0
+                ? 'In profit'
+                : pnl < 0
+                    ? 'In loss'
+                    : 'At cost'
+            : t.statusLabel;
+    final isLoss = statusLabel.toLowerCase().contains('loss') ||
+        statusLabel.toLowerCase().contains('sl');
+    final statusColor = isLoss ? ColorConstants.red : ColorConstants.green;
+    final isClosed = t != null && !t.state.isLive;
+    final useLossBackground = isLoss ||
+        (pnl != null && pnl < 0) ||
+        (isClosed &&
+            t?.state != HomeTradeState.allTargetsHit &&
+            (pnl == null || pnl <= 0));
+    final useProfitBackground = !useLossBackground &&
+        ((pnl != null && pnl > 0) ||
+            t?.state == HomeTradeState.allTargetsHit);
+
+    final entryStr = _money(t?.entry ?? 0);
+    final slStr = _money(t?.sl ?? 0);
+    final riskRewardRatio = _riskRewardRatio(t);
+    final estimatedGain =
+        t != null ? _signedPct(t.estimatedGainPercent) : '—';
+    final estimatedRisk = t != null && t.entry != 0
+        ? _signedPct(((t.sl - t.entry) / t.entry) * 100)
+        : '—';
+
+    final batchName = t?.batchName ?? '—';
+    final analystName = t?.analystName ?? '—';
+    final analystAvatarUrl = t?.analystAvatarUrl;
+    final analystWinRate = t?.analystWinRate;
+    final entryDateTime = _formatDate(t?.entryTimestamp ?? t?.nseTimestamp);
+    final nseTimestamp = t?.nseTimestamp != null
+        ? DateFormat("yyyy-MM-dd'T'HH:mm:ssxxx").format(t!.nseTimestamp)
+        : '—';
+    final rationale = t?.rationale;
+    final modifications = t?.modifications ?? <TradeModification>[];
+    final allTargets = t?.targets ?? <TradeTarget>[];
 
     return Scaffold(
       backgroundColor: ColorConstants.pageBackground,
       body: Stack(
         fit: StackFit.expand,
         children: <Widget>[
-          const AppScreenBackground(),
+          if (useProfitBackground || useLossBackground)
+            _TradeDetailsBackground(isLoss: useLossBackground)
+          else
+            const AppScreenBackground(),
           SafeArea(
             child: Column(
               children: <Widget>[
                 Padding(
-                  padding: AppSize.insets(context, left: 16, right: 16, top: 8),
+                  padding:
+                      AppSize.insets(context, left: 16, right: 16, top: 8,bottom: 8),
                   child: AppBackHeader(
-                    title: 'Live trade details',
+                    title:
+                        isClosed ? 'Closed trade details' : 'Live trade details',
                     onBack: () => context.pop(),
-                    trailing: Material(
-                      color: ColorConstants.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius:
-                            BorderRadius.circular(AppSize.r(context, 12)),
-                        side: const BorderSide(color: ColorConstants.line),
-                      ),
-                      child: InkWell(
-                        onTap: () {},
-                        borderRadius:
-                            BorderRadius.circular(AppSize.r(context, 12)),
-                        child: SizedBox(
-                          width: AppSize.r(context, 40),
-                          height: AppSize.r(context, 40),
-                          child: Icon(
-                            Icons.ios_share_rounded,
-                            size: AppSize.r(context, 20),
-                            color: ColorConstants.ink,
-                          ),
-                        ),
-                      ),
+                    trailing: _TradeSaveButton(
+                      tradeId: t?.id,
                     ),
                   ),
                 ),
@@ -116,6 +289,7 @@ class TradeDetailsPage extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: <Widget>[
+                        // ── Symbol header card ──────────────────────────────
                         _SurfaceCard(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -123,7 +297,10 @@ class TradeDetailsPage extends StatelessWidget {
                               Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: <Widget>[
-                                  _SymbolAvatar(initials: d.initials),
+                                  _SymbolAvatar(
+                                    initials: initials,
+                                    avatarUrl: analystAvatarUrl,
+                                  ),
                                   SizedBox(width: AppSize.w(context, 12)),
                                   Expanded(
                                     child: Column(
@@ -137,7 +314,7 @@ class TradeDetailsPage extends StatelessWidget {
                                           runSpacing: AppSize.h(context, 4),
                                           children: <Widget>[
                                             Text(
-                                              d.symbol,
+                                              symbol,
                                               style: TextStyleConstants
                                                   .cardTitle
                                                   .copyWith(
@@ -145,12 +322,14 @@ class TradeDetailsPage extends StatelessWidget {
                                                     AppSize.sp(context, 16),
                                               ),
                                             ),
-                                            _ExchangePill(label: d.exchange),
+                                            _ExchangePill(
+                                              label: t?.segmentLabel ?? 'NSE',
+                                            ),
                                           ],
                                         ),
                                         SizedBox(height: AppSize.h(context, 2)),
                                         Text(
-                                          d.company,
+                                          company,
                                           style: TextStyleConstants.caption
                                               .copyWith(
                                             fontSize: AppSize.sp(context, 12),
@@ -164,7 +343,7 @@ class TradeDetailsPage extends StatelessWidget {
                                     crossAxisAlignment: CrossAxisAlignment.end,
                                     children: <Widget>[
                                       Text(
-                                        d.currentPrice,
+                                        _money(currentPrice),
                                         style: TextStyleConstants.numeric
                                             .copyWith(
                                           fontSize: AppSize.sp(context, 16),
@@ -174,7 +353,7 @@ class TradeDetailsPage extends StatelessWidget {
                                       ),
                                       SizedBox(height: AppSize.h(context, 2)),
                                       Text(
-                                        d.change,
+                                        pnlText,
                                         style: TextStyleConstants.caption
                                             .copyWith(
                                           fontSize: AppSize.sp(context, 11),
@@ -187,23 +366,51 @@ class TradeDetailsPage extends StatelessWidget {
                                 ],
                               ),
                               SizedBox(height: AppSize.h(context, 16)),
-                              const TradeSignalTimeline(
-                                timestamp: '23 Jul 13:56 PM',
+                              TradeSignalTimeline(
+                                timestamp: _formatDate(
+                                    t?.entryTimestamp ?? t?.nseTimestamp),
                               ),
-                            ],
-                          ),
-                        ),
-                        SizedBox(height: AppSize.h(context, 12)),
-                        _SurfaceCard(
-                          child: Column(
-                            children: <Widget>[
+                              const TaperedHorizontalDivider(
+                                verticalPadding: 12,
+                              ),
+                              Row(
+                                children: <Widget>[
+                                  Expanded(
+                                    child: _LabeledValue(
+                                      label: 'Entry',
+                                      value: entryStr,
+                                    ),
+                                  ),
+                                  const TaperedVerticalDivider(height: 44),
+                                  Expanded(
+                                    child: _LabeledValue(
+                                      label: 'Stop loss',
+                                      value: slStr,
+                                      valueColor: ColorConstants.red,
+                                      alignEnd: true,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const TaperedHorizontalDivider(
+                                verticalPadding: 12,
+                              ),
+                              _TargetsSummary(
+                                targets: allTargets,
+                                fallbackTarget: t?.finalTarget,
+                              ),
+                              const TaperedHorizontalDivider(
+                                verticalPadding: 16,
+                              ),
+
+                        // ── Trade info card ─────────────────────────────────
                               Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: <Widget>[
                                   Expanded(
                                     child: _LabeledValue(
                                       label: 'Direction',
-                                      value: d.direction,
+                                      value: direction,
                                       valueColor: directionColor,
                                     ),
                                   ),
@@ -211,7 +418,7 @@ class TradeDetailsPage extends StatelessWidget {
                                   Expanded(
                                     child: _LabeledValue(
                                       label: 'Segment',
-                                      value: d.segment,
+                                      value: t?.segmentLabel ?? '—',
                                       alignCenter: true,
                                     ),
                                   ),
@@ -219,105 +426,90 @@ class TradeDetailsPage extends StatelessWidget {
                                   Expanded(
                                     child: _LabeledValue(
                                       label: 'Category',
-                                      value: d.category,
+                                      value: t?.categoryLabel ?? '—',
                                       alignEnd: true,
                                     ),
                                   ),
                                 ],
                               ),
-                              const TaperedHorizontalDivider(verticalPadding: 12),
-                              Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: <Widget>[
-                                  Expanded(
-                                    child: _LabeledValue(
-                                      label: 'Entry',
-                                      value: d.entry,
-                                    ),
-                                  ),
-                                  const TaperedVerticalDivider(height: 44),
-                                  Expanded(
-                                    child: _LabeledValue(
-                                      label: 'Stop loss',
-                                      value: d.sl,
-                                      alignCenter: true,
-                                    ),
-                                  ),
-                                  const TaperedVerticalDivider(height: 44),
-                                  Expanded(
-                                    child: _LabeledValue(
-                                      label: 'Target',
-                                      value: d.target,
-                                      alignEnd: true,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const TaperedHorizontalDivider(verticalPadding: 12),
+                              const TaperedHorizontalDivider(
+                                  verticalPadding: 12),
                               Row(
                                 children: <Widget>[
                                   Expanded(
                                     child: _LabeledValue(
-                                      label: 'Estimated risk',
-                                      value: d.estimatedRisk,
-                                      valueColor: ColorConstants.red,
+                                      label: 'Estimated gains',
+                                      value: estimatedGain,
+                                      valueColor: ColorConstants.green,
                                     ),
                                   ),
                                   const TaperedVerticalDivider(height: 44),
                                   Expanded(
                                     child: _LabeledValue(
                                       label: 'Live return',
-                                      value: d.liveReturn,
-                                      valueColor: ColorConstants.amber,
+                                      value: pnlText,
+                                      valueColor: changeColor,
                                       alignEnd: true,
                                     ),
                                   ),
                                 ],
                               ),
-                              const TaperedHorizontalDivider(verticalPadding: 12),
+                              const TaperedHorizontalDivider(
+                                  verticalPadding: 12),
+                              Row(
+                                children: <Widget>[
+                                  Expanded(
+                                    child: _LabeledValue(
+                                      label: 'Estimated risk',
+                                      value: estimatedRisk,
+                                      valueColor: ColorConstants.red,
+                                    ),
+                                  ),
+                                  const TaperedVerticalDivider(height: 44),
+                                  Expanded(
+                                    child: _LabeledValue(
+                                      label: 'Risk : reward',
+                                      value: riskRewardRatio,
+                                      valueColor: ColorConstants.brandBlue,
+                                      alignEnd: true,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const TaperedHorizontalDivider(
+                                  verticalPadding: 12),
                               _DetailRow(
                                 label: 'Entry date & time',
-                                value: d.entryDateTime,
+                                value: entryDateTime,
                               ),
-                              const TaperedHorizontalDivider(verticalPadding: 10),
+                              const TaperedHorizontalDivider(
+                                  verticalPadding: 10),
                               _DetailRow(
                                 label: 'Status',
-                                value: d.status,
+                                value: statusLabel,
                                 valueColor: statusColor,
                               ),
-                              const TaperedHorizontalDivider(verticalPadding: 10),
-                              _DetailRow(label: 'Batch', value: d.batchName),
-                              const TaperedHorizontalDivider(verticalPadding: 10),
+                              const TaperedHorizontalDivider(
+                                  verticalPadding: 10),
                               _DetailRow(
-                                label: 'Signal type',
-                                value: d.signalType,
-                              ),
-                              const TaperedHorizontalDivider(verticalPadding: 10),
-                              _DetailRow(
-                                label: 'Entry zone',
-                                value: d.entryZone,
-                              ),
-                              const TaperedHorizontalDivider(verticalPadding: 10),
-                              _DetailRow(
-                                label: 'Exit zone',
-                                value: d.exitZone,
-                              ),
-                              const TaperedHorizontalDivider(verticalPadding: 10),
+                                  label: 'Batch', value: batchName),
+                              const TaperedHorizontalDivider(
+                                  verticalPadding: 10),
                               _DetailRow(
                                 label: 'NSE timestamp',
-                                value: d.nseTimestamp,
+                                value: nseTimestamp,
                                 valueMono: true,
                               ),
-                              if (d.rationale != null &&
-                                  d.rationale!.isNotEmpty) ...<Widget>[
+                              if (rationale != null &&
+                                  rationale.isNotEmpty) ...<Widget>[
                                 const TaperedHorizontalDivider(
-                                  verticalPadding: 10,
-                                ),
+                                    verticalPadding: 10),
                                 Align(
                                   alignment: Alignment.centerLeft,
                                   child: Text(
                                     'Rationale',
-                                    style: TextStyleConstants.caption.copyWith(
+                                    style: TextStyleConstants.caption
+                                        .copyWith(
                                       fontSize: AppSize.sp(context, 11),
                                       fontWeight: FontWeight.w600,
                                       color: ColorConstants.mute,
@@ -326,8 +518,9 @@ class TradeDetailsPage extends StatelessWidget {
                                 ),
                                 SizedBox(height: AppSize.h(context, 6)),
                                 Text(
-                                  d.rationale!,
-                                  style: TextStyleConstants.bodyMedium.copyWith(
+                                  rationale,
+                                  style:
+                                      TextStyleConstants.bodyMedium.copyWith(
                                     fontSize: AppSize.sp(context, 13),
                                     height: 1.45,
                                     color: ColorConstants.ink
@@ -339,6 +532,8 @@ class TradeDetailsPage extends StatelessWidget {
                           ),
                         ),
                         SizedBox(height: AppSize.h(context, 20)),
+
+                        // ── Actions (modification history) ──────────────────
                         Text(
                           'Actions',
                           style: TextStyleConstants.cardTitle.copyWith(
@@ -347,7 +542,11 @@ class TradeDetailsPage extends StatelessWidget {
                         ),
                         SizedBox(height: AppSize.h(context, 4)),
                         Text(
-                          'This trade action has been performed.',
+                          _isLoadingDetails
+                              ? 'Loading actions...'
+                              : modifications.isEmpty
+                                  ? 'No actions on this trade yet.'
+                                  : 'This trade has been modified.',
                           style: TextStyleConstants.caption.copyWith(
                             fontSize: AppSize.sp(context, 12),
                             fontStyle: FontStyle.italic,
@@ -355,43 +554,76 @@ class TradeDetailsPage extends StatelessWidget {
                           ),
                         ),
                         SizedBox(height: AppSize.h(context, 10)),
-                        ...d.actions.map(
-                          (_TradeAction action) => Padding(
+                        ...modifications.map(
+                          (mod) => Padding(
                             padding: EdgeInsets.only(
-                              bottom: AppSize.h(context, 10),
-                            ),
+                                bottom: AppSize.h(context, 10)),
                             child: _SurfaceCard(
                               child: Column(
+                                crossAxisAlignment:
+                                    CrossAxisAlignment.start,
                                 children: <Widget>[
-                                  Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: <Widget>[
-                                      Expanded(
-                                        child: _LabeledValue(
-                                          label: 'Action',
-                                          value: action.title,
-                                        ),
-                                      ),
-                                      _LabeledValue(
-                                        label: 'Price',
-                                        value: action.price,
-                                        alignEnd: true,
-                                      ),
-                                    ],
+                                  _DetailRow(
+                                    label: 'Modified at',
+                                    value: _formatDate(mod.modifiedAt),
                                   ),
                                   const TaperedHorizontalDivider(
-                                    verticalPadding: 10,
-                                  ),
+                                      verticalPadding: 10),
                                   _DetailRow(
-                                    label: 'Updated at',
-                                    value: action.updatedAt,
+                                    label: 'Modified by',
+                                    value: mod.modifiedBy,
                                   ),
+                                  if (mod.reason.isNotEmpty) ...<Widget>[
+                                    const TaperedHorizontalDivider(
+                                        verticalPadding: 10),
+                                    _DetailRow(
+                                      label: 'Reason',
+                                      value: mod.reason,
+                                    ),
+                                  ],
+                                  ...mod.fieldsChanged.entries.map((e) {
+                                    final field = e.key;
+                                    final change = e.value as Map?;
+                                    final formattedOld =
+                                        _formatModificationValue(
+                                      field,
+                                      change?['old'],
+                                    );
+                                    final formattedNew =
+                                        _formatModificationValue(
+                                      field,
+                                      change?['new'],
+                                    );
+                                    final formattedChange =
+                                        field.toLowerCase() == 'targets'
+                                            ? 'Before\n$formattedOld\n\n'
+                                                'After\n$formattedNew'
+                                            : '$formattedOld → $formattedNew';
+                                    return Column(
+                                      children: <Widget>[
+                                        const TaperedHorizontalDivider(
+                                            verticalPadding: 10),
+                                        if (field.toLowerCase() == 'targets')
+                                          _TargetsModificationComparison(
+                                            before: formattedOld,
+                                            after: formattedNew,
+                                          )
+                                        else
+                                          _DetailRow(
+                                            label:
+                                                _modificationFieldLabel(field),
+                                            value: formattedChange,
+                                          ),
+                                      ],
+                                    );
+                                  }),
                                 ],
                               ),
                             ),
                           ),
                         ),
+
+                        // ── Analyst profile card ────────────────────────────
                         SizedBox(height: AppSize.h(context, 10)),
                         Text(
                           'Profile data',
@@ -407,7 +639,9 @@ class TradeDetailsPage extends StatelessWidget {
                               Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: <Widget>[
-                                  _AdvisorTagChip(label: d.advisorSegmentTag),
+                                  _AdvisorTagChip(
+                                    label: t?.categoryLabel ?? '—',
+                                  ),
                                   SizedBox(width: AppSize.w(context, 10)),
                                   Expanded(
                                     child: Column(
@@ -421,7 +655,7 @@ class TradeDetailsPage extends StatelessWidget {
                                           runSpacing: AppSize.h(context, 4),
                                           children: <Widget>[
                                             Text(
-                                              d.advisorName,
+                                              analystName,
                                               style: TextStyleConstants
                                                   .cardTitle
                                                   .copyWith(
@@ -430,20 +664,24 @@ class TradeDetailsPage extends StatelessWidget {
                                               ),
                                             ),
                                             const SebiVerifiedPill(
-                                              compact: true,
-                                            ),
+                                                compact: true),
                                           ],
                                         ),
-                                        SizedBox(height: AppSize.h(context, 4)),
-                                        Text(
-                                          'SEBI Reg: ${d.sebiReg}',
-                                          style: TextStyleConstants.caption
-                                              .copyWith(
-                                            fontSize: AppSize.sp(context, 11),
-                                            fontWeight: FontWeight.w600,
-                                            color: ColorConstants.brandBlue,
+                                        if (analystWinRate != null) ...<Widget>[
+                                          SizedBox(
+                                              height: AppSize.h(context, 4)),
+                                          Text(
+                                            'Win rate: ${analystWinRate.toStringAsFixed(1)}%',
+                                            style: TextStyleConstants.caption
+                                                .copyWith(
+                                              fontSize:
+                                                  AppSize.sp(context, 11),
+                                              fontWeight: FontWeight.w600,
+                                              color:
+                                                  ColorConstants.brandBlue,
+                                            ),
                                           ),
-                                        ),
+                                        ],
                                       ],
                                     ),
                                   ),
@@ -457,8 +695,8 @@ class TradeDetailsPage extends StatelessWidget {
                                 backgroundColor: ColorConstants.white,
                                 foregroundColor: ColorConstants.brandBlue,
                                 borderColor: ColorConstants.brandBlue,
-                                onPressed: () =>
-                                    context.push(AppRoutingName.advisorProfile),
+                                onPressed: () => context
+                                    .push(AppRoutingName.advisorProfile),
                               ),
                             ],
                           ),
@@ -478,80 +716,188 @@ class TradeDetailsPage extends StatelessWidget {
   }
 }
 
-class _TradeAction {
-  const _TradeAction({
-    required this.title,
-    required this.price,
-    required this.updatedAt,
-  });
+class _TradeSaveButton extends StatefulWidget {
+  const _TradeSaveButton({required this.tradeId});
 
-  final String title;
-  final String price;
-  final String updatedAt;
+  final String? tradeId;
+
+  @override
+  State<_TradeSaveButton> createState() => _TradeSaveButtonState();
 }
 
-class _SignalDetails {
-  const _SignalDetails({
-    required this.symbol,
-    required this.company,
-    required this.exchange,
-    required this.initials,
-    required this.currentPrice,
-    required this.change,
-    required this.isProfit,
-    required this.batchName,
-    required this.category,
-    required this.estimatedRisk,
-    required this.liveReturn,
-    required this.signalType,
-    required this.entry,
-    required this.sl,
-    required this.target,
-    required this.direction,
-    required this.segment,
-    required this.entryDateTime,
-    required this.status,
-    required this.statusIsNeutral,
-    required this.entryZone,
-    required this.exitZone,
-    required this.nseTimestamp,
-    required this.advisorName,
-    required this.advisorInitials,
-    required this.advisorSegmentTag,
-    required this.sebiReg,
-    required this.actions,
-    this.rationale,
-  });
+class _TradeSaveButtonState extends State<_TradeSaveButton> {
+  bool _isSaved = false;
+  bool _isLoading = true;
+  bool _isUpdating = false;
 
-  final String symbol;
-  final String company;
-  final String exchange;
-  final String initials;
-  final String currentPrice;
-  final String change;
-  final bool isProfit;
-  final String batchName;
-  final String category;
-  final String estimatedRisk;
-  final String liveReturn;
-  final String signalType;
-  final String entry;
-  final String sl;
-  final String target;
-  final String direction;
-  final String segment;
-  final String entryDateTime;
-  final String status;
-  final bool statusIsNeutral;
-  final String entryZone;
-  final String exitZone;
-  final String nseTimestamp;
-  final String advisorName;
-  final String advisorInitials;
-  final String advisorSegmentTag;
-  final String sebiReg;
-  final List<_TradeAction> actions;
-  final String? rationale;
+  HomeRepository get _repository => getIt<HomeRepository>();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedState();
+  }
+
+  Future<void> _loadSavedState() async {
+    final String? tradeId = widget.tradeId;
+    if (tradeId == null) {
+      if (mounted) setState(() => _isLoading = false);
+      return;
+    }
+
+    try {
+      final Set<String> savedIds = await _repository.fetchSavedTradeIds();
+      if (mounted) {
+        setState(() {
+          _isSaved = savedIds.contains(tradeId);
+          _isLoading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _toggleSaved() async {
+    final String? tradeId = widget.tradeId;
+    if (tradeId == null || _isUpdating) return;
+
+    final bool wasSaved = _isSaved;
+    setState(() {
+      _isSaved = !wasSaved;
+      _isUpdating = true;
+    });
+
+    try {
+      final bool saved = wasSaved
+          ? await _repository.unsaveTrade(tradeId)
+          : await _repository.saveTrade(tradeId);
+      if (!mounted) return;
+      setState(() {
+        _isSaved = saved;
+        _isUpdating = false;
+      });
+      if (saved) {
+        await CommonAppNotificationBar.success(
+          context: context,
+          title: 'Trade saved',
+          message: 'Added to your saved trades.',
+        );
+      } else {
+        await CommonAppNotificationBar.error(
+          context: context,
+          title: 'Trade removed',
+          message: 'Removed from your saved trades.',
+        );
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isSaved = wasSaved;
+        _isUpdating = false;
+      });
+      await CommonAppNotificationBar.error(
+        context: context,
+        title: 'Unable to update saved trade',
+        message: 'Please try again.',
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: _isSaved ? ColorConstants.liveBg : ColorConstants.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppSize.r(context, 12)),
+        side: BorderSide(
+          color:
+              _isSaved ? ColorConstants.brandBlue : ColorConstants.line,
+        ),
+      ),
+      child: InkWell(
+        onTap: _isLoading || widget.tradeId == null ? null : _toggleSaved,
+        borderRadius: BorderRadius.circular(AppSize.r(context, 12)),
+        child: SizedBox(
+          width: AppSize.r(context, 40),
+          height: AppSize.r(context, 40),
+          child: Center(
+            child: _isLoading || _isUpdating
+                ? SizedBox(
+                    width: AppSize.r(context, 17),
+                    height: AppSize.r(context, 17),
+                    child: const CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Icon(
+                    _isSaved
+                        ? Icons.bookmark_rounded
+                        : Icons.bookmark_outline_rounded,
+                    size: AppSize.r(context, 22),
+                    color: ColorConstants.brandBlue,
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TradeDetailsBackground extends StatelessWidget {
+  const _TradeDetailsBackground({required this.isLoss});
+
+  final bool isLoss;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = isLoss ? ColorConstants.red : ColorConstants.green;
+    final background =
+        isLoss ? ColorConstants.lossBg : ColorConstants.profitBg;
+    final Color borderTint = Color.lerp(
+      ColorConstants.white,
+      background,
+      0.72,
+    )!;
+    final Color outcomeTint = Color.lerp(
+      ColorConstants.pageBackground,
+      accent,
+      0.13,
+    )!;
+
+    return IgnorePointer(
+      child: Stack(
+        fit: StackFit.expand,
+        children: <Widget>[
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                stops: const <double>[0, 0.46, 1],
+                colors: <Color>[
+                  borderTint,
+                  ColorConstants.pageBackground,
+                  outcomeTint,
+                ],
+              ),
+            ),
+          ),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: RadialGradient(
+                center: const Alignment(0.9, -0.85),
+                radius: 0.95,
+                colors: <Color>[
+                  accent.withValues(alpha: 0.12),
+                  background.withValues(alpha: 0.16),
+                  ColorConstants.transparent,
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _SurfaceCard extends StatelessWidget {
@@ -563,7 +909,8 @@ class _SurfaceCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: AppSize.insets(context, left: 14, right: 14, top: 14, bottom: 14),
+      padding:
+          AppSize.insets(context, left: 14, right: 14, top: 14, bottom: 14),
       decoration: BoxDecoration(
         color: ColorConstants.white,
         borderRadius: BorderRadius.circular(AppSize.r(context, 16)),
@@ -584,9 +931,10 @@ class _SurfaceCard extends StatelessWidget {
 }
 
 class _SymbolAvatar extends StatelessWidget {
-  const _SymbolAvatar({required this.initials});
+  const _SymbolAvatar({required this.initials, this.avatarUrl});
 
   final String initials;
+  final String? avatarUrl;
 
   @override
   Widget build(BuildContext context) {
@@ -594,6 +942,7 @@ class _SymbolAvatar extends StatelessWidget {
       width: AppSize.r(context, 48),
       height: AppSize.r(context, 48),
       alignment: Alignment.center,
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(AppSize.r(context, 14)),
         gradient: const LinearGradient(
@@ -612,13 +961,29 @@ class _SymbolAvatar extends StatelessWidget {
           ),
         ],
       ),
-      child: Text(
-        initials,
-        style: TextStyleConstants.cardTitleSmall.copyWith(
-          color: ColorConstants.white,
-          fontSize: AppSize.sp(context, 14),
-          fontWeight: FontWeight.w700,
-        ),
+      child: avatarUrl != null
+          ? Image.network(
+              avatarUrl!,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => _InitialsText(initials: initials),
+            )
+          : _InitialsText(initials: initials),
+    );
+  }
+}
+
+class _InitialsText extends StatelessWidget {
+  const _InitialsText({required this.initials});
+  final String initials;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      initials,
+      style: TextStyleConstants.cardTitleSmall.copyWith(
+        color: ColorConstants.white,
+        fontSize: AppSize.sp(context, 14),
+        fontWeight: FontWeight.w700,
       ),
     );
   }
@@ -642,6 +1007,7 @@ class _AdvisorTagChip extends StatelessWidget {
       ),
       child: Text(
         label,
+        textAlign: TextAlign.center,
         style: TextStyleConstants.caption.copyWith(
           fontSize: AppSize.sp(context, 9),
           fontWeight: FontWeight.w800,
@@ -681,6 +1047,114 @@ class _ExchangePill extends StatelessWidget {
   }
 }
 
+class _TargetsSummary extends StatelessWidget {
+  const _TargetsSummary({
+    required this.targets,
+    required this.fallbackTarget,
+  });
+
+  final List<TradeTarget> targets;
+  final double? fallbackTarget;
+
+  @override
+  Widget build(BuildContext context) {
+    final List<TradeTarget> visibleTargets = targets.isNotEmpty
+        ? targets
+        : fallbackTarget == null
+            ? const <TradeTarget>[]
+            : <TradeTarget>[
+                TradeTarget(price: fallbackTarget!, bookPercent: 100),
+              ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(
+          visibleTargets.length > 1 ? 'Targets' : 'Target',
+          style: TextStyleConstants.caption.copyWith(
+            fontSize: AppSize.sp(context, 11),
+            fontWeight: FontWeight.w600,
+            color: ColorConstants.mute,
+          ),
+        ),
+        SizedBox(height: AppSize.h(context, 8)),
+        if (visibleTargets.isEmpty)
+          Text(
+            '—',
+            style: TextStyleConstants.numeric.copyWith(
+              fontSize: AppSize.sp(context, 14),
+              fontWeight: FontWeight.w700,
+              color: ColorConstants.ink,
+            ),
+          )
+        else
+          Wrap(
+            spacing: AppSize.w(context, 8),
+            runSpacing: AppSize.h(context, 8),
+            children: visibleTargets.asMap().entries.map((entry) {
+              final TradeTarget target = entry.value;
+              final String label = visibleTargets.length == 1
+                  ? 'Target'
+                  : 'T${entry.key + 1}';
+              return Container(
+                padding: AppSize.symmetric(
+                  context,
+                  horizontal: 10,
+                  vertical: 7,
+                ),
+                decoration: BoxDecoration(
+                  color: ColorConstants.profitBg.withValues(alpha: 0.58),
+                  borderRadius: BorderRadius.circular(AppSize.r(context, 9)),
+                  border: Border.all(
+                    color: ColorConstants.green.withValues(alpha: 0.20),
+                  ),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        Text(
+                          '$label  ',
+                          style: TextStyleConstants.caption.copyWith(
+                            fontSize: AppSize.sp(context, 10),
+                            fontWeight: FontWeight.w700,
+                            color: ColorConstants.green,
+                          ),
+                        ),
+                        Text(
+                          _money(target.price),
+                          style: TextStyleConstants.numeric.copyWith(
+                            fontSize: AppSize.sp(context, 12),
+                            fontWeight: FontWeight.w700,
+                            color: ColorConstants.ink,
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (visibleTargets.length > 1) ...<Widget>[
+                      SizedBox(height: AppSize.h(context, 4)),
+                      Text(
+                        'Book percent: ${target.bookPercent.toInt()}%',
+                        style: TextStyleConstants.caption.copyWith(
+                          fontSize: AppSize.sp(context, 9),
+                          fontWeight: FontWeight.w600,
+                          color: ColorConstants.mute,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              );
+            }).toList(),
+          ),
+      ],
+    );
+  }
+}
+
 class _LabeledValue extends StatelessWidget {
   const _LabeledValue({
     required this.label,
@@ -696,13 +1170,13 @@ class _LabeledValue extends StatelessWidget {
   final bool alignEnd;
   final bool alignCenter;
 
-  CrossAxisAlignment get _crossAxisAlignment {
+  CrossAxisAlignment get _cross {
     if (alignEnd) return CrossAxisAlignment.end;
     if (alignCenter) return CrossAxisAlignment.center;
     return CrossAxisAlignment.start;
   }
 
-  TextAlign get _textAlign {
+  TextAlign get _align {
     if (alignEnd) return TextAlign.right;
     if (alignCenter) return TextAlign.center;
     return TextAlign.left;
@@ -711,11 +1185,11 @@ class _LabeledValue extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Column(
-      crossAxisAlignment: _crossAxisAlignment,
+      crossAxisAlignment: _cross,
       children: <Widget>[
         Text(
           label,
-          textAlign: _textAlign,
+          textAlign: _align,
           style: TextStyleConstants.caption.copyWith(
             fontSize: AppSize.sp(context, 11),
             fontWeight: FontWeight.w500,
@@ -725,7 +1199,7 @@ class _LabeledValue extends StatelessWidget {
         SizedBox(height: AppSize.h(context, 4)),
         Text(
           value,
-          textAlign: _textAlign,
+          textAlign: _align,
           style: TextStyleConstants.numeric.copyWith(
             fontSize: AppSize.sp(context, 14),
             fontWeight: FontWeight.w700,
@@ -733,6 +1207,121 @@ class _LabeledValue extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _TargetsModificationComparison extends StatelessWidget {
+  const _TargetsModificationComparison({
+    required this.before,
+    required this.after,
+  });
+
+  final String before;
+  final String after;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(
+          'Targets',
+          style: TextStyleConstants.caption.copyWith(
+            fontSize: AppSize.sp(context, 12),
+            color: ColorConstants.mute,
+          ),
+        ),
+        SizedBox(height: AppSize.h(context, 8)),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Expanded(
+              child: _TargetChangeColumn(
+                title: 'Before',
+                value: before,
+                background: ColorConstants.gray50,
+                accent: ColorConstants.mute,
+              ),
+            ),
+            Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: AppSize.w(context, 7),
+                vertical: AppSize.h(context, 24),
+              ),
+              child: Icon(
+                Icons.arrow_forward_rounded,
+                size: AppSize.r(context, 17),
+                color: ColorConstants.brandBlue,
+              ),
+            ),
+            Expanded(
+              child: _TargetChangeColumn(
+                title: 'After',
+                value: after,
+                background:
+                    ColorConstants.liveBg.withValues(alpha: 0.72),
+                accent: ColorConstants.brandBlue,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _TargetChangeColumn extends StatelessWidget {
+  const _TargetChangeColumn({
+    required this.title,
+    required this.value,
+    required this.background,
+    required this.accent,
+  });
+
+  final String title;
+  final String value;
+  final Color background;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: AppSize.insets(
+        context,
+        left: 9,
+        right: 9,
+        top: 8,
+        bottom: 8,
+      ),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(AppSize.r(context, 9)),
+        border: Border.all(color: accent.withValues(alpha: 0.16)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            title,
+            style: TextStyleConstants.caption.copyWith(
+              fontSize: AppSize.sp(context, 10),
+              fontWeight: FontWeight.w700,
+              color: accent,
+            ),
+          ),
+          SizedBox(height: AppSize.h(context, 5)),
+          Text(
+            value,
+            style: TextStyleConstants.bodyMedium.copyWith(
+              fontSize: AppSize.sp(context, 10.5),
+              fontWeight: FontWeight.w600,
+              height: 1.3,
+              color: ColorConstants.ink,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
