@@ -79,8 +79,10 @@ class _SignedAuthInterceptor extends Interceptor {
     RequestInterceptorHandler handler,
   ) async {
     final method = options.method.toUpperCase();
-    final uri = options.uri;
-    final path = uri.query.isEmpty ? uri.path : '${uri.path}?${uri.query}';
+    // Gateway verifies the path *after* the Vercel /api reverse-proxy rewrite.
+    // Browser hits `/api/auth/...` but Azure sees `/auth/...` ? sign the
+    // upstream path so it matches what the gateway recomputes.
+    final path = _pathForSignature(options);
 
     final isBodyless = method == 'GET' || method == 'HEAD';
     final body = isBodyless
@@ -102,13 +104,42 @@ class _SignedAuthInterceptor extends Interceptor {
     options.headers['X-Device-ID'] = deviceId;
     options.headers.addAll(sigHeaders);
 
-  final token = await storage.read(SecureStorage.accessToken);
+    final token = await storage.read(SecureStorage.accessToken);
     if (token != null) {
       options.headers['Authorization'] = 'Bearer $token';
     }
     options.extra['api_log_started_at'] = DateTime.now();
 
     handler.next(options);
+  }
+
+  /// Path used in the ECDSA message: `METHOD|path|body|ts|nonce|deviceId`.
+  ///
+  /// Always the gateway path (e.g. `/auth/login/request-otp`), never the
+  /// browser proxy prefix (`/api/...`).
+  static String _pathForSignature(RequestOptions options) {
+    // Prefer the path passed to Dio (e.g. '/auth/login/request-otp').
+    var path = options.path;
+    if (path.isEmpty) {
+      path = options.uri.path;
+    }
+    if (!path.startsWith('/')) {
+      path = '/$path';
+    }
+    final query = options.uri.query;
+    if (query.isNotEmpty && !path.contains('?')) {
+      path = '$path?$query';
+    }
+    // Resolved URI with base `.../api` can become `/api/auth/...`.
+    if (path == '/api') {
+      path = '/';
+    } else if (path.startsWith('/api/')) {
+      path = path.substring(4); // '/api'.length
+    } else if (path.startsWith('/api?')) {
+      path = path.replaceFirst('/api', '');
+      if (!path.startsWith('/')) path = '/$path';
+    }
+    return path;
   }
 
   @override
