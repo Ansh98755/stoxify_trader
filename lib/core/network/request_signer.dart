@@ -4,7 +4,7 @@ import 'dart:typed_data';
 
 import 'package:asn1lib/asn1lib.dart';
 import 'package:basic_utils/basic_utils.dart';
-import 'package:flutter/foundation.dart' show kReleaseMode;
+import 'package:flutter/foundation.dart' show kIsWeb, kReleaseMode;
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:pointycastle/export.dart';
 
@@ -20,9 +20,8 @@ abstract class RequestSigner {
 /// ECDSA P-256 request signer.
 ///
 /// Key resolution order:
-/// 1. `--dart-define=ECDSA_PRIVATE_KEY_PEM=...`
-///    - plain PEM, or base64 / URL-safe base64 of the PEM (Vercel-friendly)
-/// 2. Bundled `assets/dev/ecdsa_private.pem` when not in release, or when
+/// 1. `--dart-define=ECDSA_PRIVATE_KEY_PEM=...` (plain PEM or base64 of PEM)
+/// 2. Bundled `assets/dev/ecdsa_private.pem` on web, debug, or when
 ///    `--dart-define=ALLOW_DEV_SIGNER=true`
 class EcdsaRequestSigner implements RequestSigner {
   EcdsaRequestSigner._(this._privateKey, this.keyVersion);
@@ -36,54 +35,63 @@ class EcdsaRequestSigner implements RequestSigner {
   static const _allowDevSignerInRelease =
       bool.fromEnvironment('ALLOW_DEV_SIGNER');
 
-  /// Prefer [load]; kept for callers that still import the old name.
   static Future<EcdsaRequestSigner> loadDev({String keyVersion = 'v1.0'}) =>
       load(keyVersion: keyVersion);
 
   static Future<EcdsaRequestSigner> load({String keyVersion = 'v1.0'}) async {
-    final pem = await _resolvePem();
+    final String? pem = await _resolvePem();
     if (pem == null || pem.trim().isEmpty) {
       throw StateError(
         'No ECDSA signing key available. '
-        'Set ECDSA_PRIVATE_KEY_PEM (base64 or PEM) on the release build, '
-        'or ALLOW_DEV_SIGNER=true for web CI.',
+        'Set ECDSA_PRIVATE_KEY_PEM on the release build.',
       );
     }
-    final key = CryptoUtils.ecPrivateKeyFromPem(pem);
-    return EcdsaRequestSigner._(key, keyVersion);
+
+    try {
+      final key = CryptoUtils.ecPrivateKeyFromPem(pem);
+      return EcdsaRequestSigner._(key, keyVersion);
+    } catch (_) {
+      // Invalid env PEM (common when shell mangles dart-defines) — fall back.
+      if (_canUseBundledDevKey()) {
+        final fallback = await rootBundle.loadString(_devKeyAsset);
+        final key = CryptoUtils.ecPrivateKeyFromPem(fallback);
+        return EcdsaRequestSigner._(key, keyVersion);
+      }
+      rethrow;
+    }
   }
+
+  /// Web always needs a key to boot; refusing it is what caused the white screen.
+  static bool _canUseBundledDevKey() =>
+      kIsWeb || !kReleaseMode || _allowDevSignerInRelease;
 
   static Future<String?> _resolvePem() async {
     if (_envKey.isNotEmpty) {
-      return _decodeEnvKey(_envKey);
+      final decoded = _decodeEnvKey(_envKey);
+      if (decoded.trim().isNotEmpty) return decoded;
     }
-    if (kReleaseMode && !_allowDevSignerInRelease) {
-      return null;
+
+    if (_canUseBundledDevKey()) {
+      return rootBundle.loadString(_devKeyAsset);
     }
-    return rootBundle.loadString(_devKeyAsset);
+    return null;
   }
 
   /// Accepts raw PEM or base64(PEM) as used by Vercel `dart-define`.
   static String _decodeEnvKey(String raw) {
     final cleaned = raw.trim();
 
-    // 1) Already a PEM document
     if (_looksLikePem(cleaned)) {
       return _normalizeNewlines(cleaned);
     }
 
-    // 2) Literal "\n" in env var body with PEM markers after expand
     final unescaped = _normalizeNewlines(cleaned);
     if (_looksLikePem(unescaped)) return unescaped;
 
-    // 3) Standard base64 of the whole PEM
     final asB64 = _tryBase64ToPem(cleaned);
     if (asB64 != null) return asB64;
 
-    // 4) URL-safe base64
-    final urlSafe = cleaned
-        .replaceAll('-', '+')
-        .replaceAll('_', '/');
+    final urlSafe = cleaned.replaceAll('-', '+').replaceAll('_', '/');
     final padded = urlSafe.padRight(
       urlSafe.length + ((4 - urlSafe.length % 4) % 4),
       '=',
@@ -91,19 +99,15 @@ class EcdsaRequestSigner implements RequestSigner {
     final asUrlB64 = _tryBase64ToPem(padded);
     if (asUrlB64 != null) return asUrlB64;
 
-    // Last resort: hand to PEM parser (may throw a clearer error)
     return unescaped;
   }
 
   static String? _tryBase64ToPem(String input) {
     try {
-      // strip whitespace/newlines from base64 wrappers
       final compact = input.replaceAll(RegExp(r'\s+'), '');
       final decoded = utf8.decode(base64.decode(compact));
       if (_looksLikePem(decoded)) return decoded.trim();
-    } catch (_) {
-      // not valid base64
-    }
+    } catch (_) {}
     return null;
   }
 
