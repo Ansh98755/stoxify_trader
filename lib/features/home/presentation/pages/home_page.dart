@@ -184,7 +184,7 @@ class _HomeViewState extends State<_HomeView> {
                 bottom: !isWeb,
                 child: Padding(
                   padding: isWeb
-                      ? const EdgeInsets.fromLTRB(24, 16, 24, 0)
+                      ? const EdgeInsets.fromLTRB(20, 16, 20, 0)
                       : AppSize.insets(context, left: 16, right: 16, top: 8),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,

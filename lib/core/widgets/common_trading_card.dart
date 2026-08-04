@@ -134,6 +134,7 @@ class _CardBody extends StatelessWidget {
           AppSize.h(context, 12),
         ),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
             if (data.compact)

@@ -473,7 +473,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
   }
 }
 
-/// Web-only 2-column list (analysts / batches) with a max content width.
+/// Web-only 2-column list (analysts / batches) — full width, content height.
 class _WebTwoColList extends StatelessWidget {
   const _WebTwoColList({
     required this.itemCount,
@@ -485,28 +485,26 @@ class _WebTwoColList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        const double maxWidth = 1080;
-        final double side = constraints.maxWidth > maxWidth
-            ? (constraints.maxWidth - maxWidth) / 2
-            : 0;
-        return GridView.builder(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: EdgeInsets.fromLTRB(side, 6, side, 24),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            mainAxisSpacing: 16,
-            crossAxisSpacing: 16,
-            mainAxisExtent: 220,
-          ),
-          itemCount: itemCount,
-          itemBuilder: (context, index) {
-            return Align(
-              alignment: Alignment.topCenter,
-              child: itemBuilder(context, index),
-            );
-          },
+    final int rowCount = (itemCount + 1) ~/ 2;
+    return ListView.separated(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(0, 6, 0, 24),
+      itemCount: rowCount,
+      separatorBuilder: (_, _) => const SizedBox(height: 16),
+      itemBuilder: (context, rowIndex) {
+        final int leftIndex = rowIndex * 2;
+        final int rightIndex = leftIndex + 1;
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Expanded(child: itemBuilder(context, leftIndex)),
+            const SizedBox(width: 16),
+            Expanded(
+              child: rightIndex < itemCount
+                  ? itemBuilder(context, rightIndex)
+                  : const SizedBox.shrink(),
+            ),
+          ],
         );
       },
     );

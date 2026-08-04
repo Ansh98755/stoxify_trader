@@ -19,10 +19,11 @@ abstract class RequestSigner {
 
 /// ECDSA P-256 request signer.
 ///
-/// Resolution order:
-/// 1. `--dart-define=ECDSA_PRIVATE_KEY_PEM=...` (production / CI)
-/// 2. Bundled `assets/dev/ecdsa_private.pem` (debug, or release with
-///    `--dart-define=ALLOW_DEV_SIGNER=true`)
+/// Key resolution order:
+/// 1. `--dart-define=ECDSA_PRIVATE_KEY_PEM=...`
+///    - plain PEM, or base64 / URL-safe base64 of the PEM (Vercel-friendly)
+/// 2. Bundled `assets/dev/ecdsa_private.pem` when not in release, or when
+///    `--dart-define=ALLOW_DEV_SIGNER=true`
 class EcdsaRequestSigner implements RequestSigner {
   EcdsaRequestSigner._(this._privateKey, this.keyVersion);
 
@@ -31,49 +32,94 @@ class EcdsaRequestSigner implements RequestSigner {
   final Random _rng = Random.secure();
 
   static const _devKeyAsset = 'assets/dev/ecdsa_private.pem';
-  static const _envPem = String.fromEnvironment('ECDSA_PRIVATE_KEY_PEM');
+  static const _envKey = String.fromEnvironment('ECDSA_PRIVATE_KEY_PEM');
   static const _allowDevSignerInRelease =
       bool.fromEnvironment('ALLOW_DEV_SIGNER');
 
-  static Future<EcdsaRequestSigner> loadDev({String keyVersion = 'v1.0'}) async {
-    final String? pem = await _resolvePem();
+  /// Prefer [load]; kept for callers that still import the old name.
+  static Future<EcdsaRequestSigner> loadDev({String keyVersion = 'v1.0'}) =>
+      load(keyVersion: keyVersion);
+
+  static Future<EcdsaRequestSigner> load({String keyVersion = 'v1.0'}) async {
+    final pem = await _resolvePem();
     if (pem == null || pem.trim().isEmpty) {
       throw StateError(
-        'No ECDSA signing key available. For release/web production, pass '
-        '--dart-define=ECDSA_PRIVATE_KEY_PEM=... (or ALLOW_DEV_SIGNER=true '
-        'to use the bundled dev key).',
+        'No ECDSA signing key available. '
+        'Set ECDSA_PRIVATE_KEY_PEM (base64 or PEM) on the release build, '
+        'or ALLOW_DEV_SIGNER=true for web CI.',
       );
     }
-    final key = CryptoUtils.ecPrivateKeyFromPem(_normalizePem(pem));
+    final key = CryptoUtils.ecPrivateKeyFromPem(pem);
     return EcdsaRequestSigner._(key, keyVersion);
   }
 
-  /// Prefer the compile-time env PEM; fall back to the bundled dev asset when
-  /// allowed.
   static Future<String?> _resolvePem() async {
-    if (_envPem.isNotEmpty) return _envPem;
-
+    if (_envKey.isNotEmpty) {
+      return _decodeEnvKey(_envKey);
+    }
     if (kReleaseMode && !_allowDevSignerInRelease) {
       return null;
     }
     return rootBundle.loadString(_devKeyAsset);
   }
 
-  /// Env vars often store multi-line PEMs with literal `\n` sequences.
-  static String _normalizePem(String pem) {
-    var value = pem.trim();
-    if (value.contains(r'\n') && !value.contains('\n')) {
-      value = value.replaceAll(r'\n', '\n');
+  /// Accepts raw PEM or base64(PEM) as used by Vercel `dart-define`.
+  static String _decodeEnvKey(String raw) {
+    final cleaned = raw.trim();
+
+    // 1) Already a PEM document
+    if (_looksLikePem(cleaned)) {
+      return _normalizeNewlines(cleaned);
     }
-    // Strip surrounding quotes if the whole PEM was wrapped.
-    if ((value.startsWith('"') && value.endsWith('"')) ||
-        (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.substring(1, value.length - 1).trim();
-      if (value.contains(r'\n') && !value.contains('\n')) {
-        value = value.replaceAll(r'\n', '\n');
-      }
+
+    // 2) Literal "\n" in env var body with PEM markers after expand
+    final unescaped = _normalizeNewlines(cleaned);
+    if (_looksLikePem(unescaped)) return unescaped;
+
+    // 3) Standard base64 of the whole PEM
+    final asB64 = _tryBase64ToPem(cleaned);
+    if (asB64 != null) return asB64;
+
+    // 4) URL-safe base64
+    final urlSafe = cleaned
+        .replaceAll('-', '+')
+        .replaceAll('_', '/');
+    final padded = urlSafe.padRight(
+      urlSafe.length + ((4 - urlSafe.length % 4) % 4),
+      '=',
+    );
+    final asUrlB64 = _tryBase64ToPem(padded);
+    if (asUrlB64 != null) return asUrlB64;
+
+    // Last resort: hand to PEM parser (may throw a clearer error)
+    return unescaped;
+  }
+
+  static String? _tryBase64ToPem(String input) {
+    try {
+      // strip whitespace/newlines from base64 wrappers
+      final compact = input.replaceAll(RegExp(r'\s+'), '');
+      final decoded = utf8.decode(base64.decode(compact));
+      if (_looksLikePem(decoded)) return decoded.trim();
+    } catch (_) {
+      // not valid base64
     }
-    return value;
+    return null;
+  }
+
+  static bool _looksLikePem(String value) =>
+      value.contains('BEGIN') && value.contains('PRIVATE KEY');
+
+  static String _normalizeNewlines(String value) {
+    var s = value.trim();
+    if ((s.startsWith('"') && s.endsWith('"')) ||
+        (s.startsWith("'") && s.endsWith("'"))) {
+      s = s.substring(1, s.length - 1).trim();
+    }
+    if (s.contains(r'\n') && !s.contains('\n')) {
+      s = s.replaceAll(r'\n', '\n');
+    }
+    return s;
   }
 
   @override
