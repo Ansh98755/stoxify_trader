@@ -17,7 +17,12 @@ abstract class RequestSigner {
   });
 }
 
-/// DEV-ONLY ECDSA P-256 signer using bundled `assets/dev/ecdsa_private.pem`.
+/// ECDSA P-256 request signer.
+///
+/// Resolution order:
+/// 1. `--dart-define=ECDSA_PRIVATE_KEY_PEM=...` (production / CI)
+/// 2. Bundled `assets/dev/ecdsa_private.pem` (debug, or release with
+///    `--dart-define=ALLOW_DEV_SIGNER=true`)
 class EcdsaRequestSigner implements RequestSigner {
   EcdsaRequestSigner._(this._privateKey, this.keyVersion);
 
@@ -26,18 +31,49 @@ class EcdsaRequestSigner implements RequestSigner {
   final Random _rng = Random.secure();
 
   static const _devKeyAsset = 'assets/dev/ecdsa_private.pem';
+  static const _envPem = String.fromEnvironment('ECDSA_PRIVATE_KEY_PEM');
   static const _allowDevSignerInRelease =
       bool.fromEnvironment('ALLOW_DEV_SIGNER');
 
   static Future<EcdsaRequestSigner> loadDev({String keyVersion = 'v1.0'}) async {
-    if (kReleaseMode && !_allowDevSignerInRelease) {
+    final String? pem = await _resolvePem();
+    if (pem == null || pem.trim().isEmpty) {
       throw StateError(
-        'Refusing to load the bundled dev signing key in a release build.',
+        'No ECDSA signing key available. For release/web production, pass '
+        '--dart-define=ECDSA_PRIVATE_KEY_PEM=... (or ALLOW_DEV_SIGNER=true '
+        'to use the bundled dev key).',
       );
     }
-    final pem = await rootBundle.loadString(_devKeyAsset);
-    final key = CryptoUtils.ecPrivateKeyFromPem(pem);
+    final key = CryptoUtils.ecPrivateKeyFromPem(_normalizePem(pem));
     return EcdsaRequestSigner._(key, keyVersion);
+  }
+
+  /// Prefer the compile-time env PEM; fall back to the bundled dev asset when
+  /// allowed.
+  static Future<String?> _resolvePem() async {
+    if (_envPem.isNotEmpty) return _envPem;
+
+    if (kReleaseMode && !_allowDevSignerInRelease) {
+      return null;
+    }
+    return rootBundle.loadString(_devKeyAsset);
+  }
+
+  /// Env vars often store multi-line PEMs with literal `\n` sequences.
+  static String _normalizePem(String pem) {
+    var value = pem.trim();
+    if (value.contains(r'\n') && !value.contains('\n')) {
+      value = value.replaceAll(r'\n', '\n');
+    }
+    // Strip surrounding quotes if the whole PEM was wrapped.
+    if ((value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.substring(1, value.length - 1).trim();
+      if (value.contains(r'\n') && !value.contains('\n')) {
+        value = value.replaceAll(r'\n', '\n');
+      }
+    }
+    return value;
   }
 
   @override
