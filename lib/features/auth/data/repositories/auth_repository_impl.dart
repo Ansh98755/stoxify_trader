@@ -124,7 +124,14 @@ class AuthRepositoryImpl implements AuthRepository {
   Future<AuthUser> _fetchMe() async {
     final res = await _dio.get('/users/me');
     if (res.statusCode != 200) throw _errorFrom(res);
-    final user = AuthUser.fromProfile(res.data as Map<String, dynamic>);
+    final data = res.data;
+    if (data is! Map) {
+      throw AuthException(
+        'INVALID_RESPONSE',
+        'Profile response was not JSON',
+      );
+    }
+    final user = AuthUser.fromProfile(data.cast<String, dynamic>());
     _cachedUser = user;
     return user;
   }
@@ -233,7 +240,13 @@ class AuthRepositoryImpl implements AuthRepository {
   Future<String> requestWsChannel() async {
     final res = await _dio.post('/auth/request-ws-channel');
     if (res.statusCode != 200) throw _errorFrom(res);
-    final data = res.data as Map<String, dynamic>;
+    final data = res.data;
+    if (data is! Map) {
+      throw AuthException(
+        'INVALID_RESPONSE',
+        'Expected JSON channel response, got ${data.runtimeType}',
+      );
+    }
     final channelId = data['channel_id'];
     if (channelId is! String) {
       throw AuthException('INVALID_RESPONSE', 'Invalid channel ID received');

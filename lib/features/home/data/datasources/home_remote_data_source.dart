@@ -122,7 +122,12 @@ class HomeRemoteDataSource {
         throw ServerFailure(
             'Failed to load saved trade IDs (${res.statusCode})');
       }
-      final data = (res.data as Map).cast<String, dynamic>();
+      final data = res.data;
+      if (data is! Map) {
+        throw ServerFailure(
+          'Failed to load saved trade IDs (unexpected response)',
+        );
+      }
       final raw = (data['trade_ids'] as List?) ?? const <dynamic>[];
       return raw.whereType<String>().toSet();
     } on DioException catch (e) {
@@ -144,7 +149,10 @@ class HomeRemoteDataSource {
       if (res.statusCode != 200) {
         throw ServerFailure('Failed to load saved trades (${res.statusCode})');
       }
-      final data = (res.data as Map).cast<String, dynamic>();
+      final data = res.data;
+      if (data is! Map) {
+        throw ServerFailure('Failed to load saved trades (unexpected response)');
+      }
       final raw = (data['trades'] as List?) ?? const <dynamic>[];
       return raw
           .whereType<Map>()
@@ -218,7 +226,12 @@ class HomeRemoteDataSource {
         );
       }
 
-      final data = (res.data as Map).cast<String, dynamic>();
+      final data = res.data;
+      if (data is! Map) {
+        throw ServerFailure(
+          'Failed to load subscriptions (unexpected response)',
+        );
+      }
       return ((data['subscriptions'] as List?) ?? const <dynamic>[])
           .whereType<Map>()
           .map(

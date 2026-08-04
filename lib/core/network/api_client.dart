@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart' show kReleaseMode;
+import 'package:flutter/foundation.dart' show kIsWeb, kReleaseMode;
 
 import '../storage/secure_storage.dart';
 import 'device_id.dart';
@@ -15,12 +15,15 @@ const _cloudBaseUrl =
 
 /// Resolved API origin for Dio. Always ends with `/`.
 ///
-/// Production web uses a base like `https://stoxify-trader.vercel.app/api/`.
-/// Paths must be *relative* (`auth/...`, not `/auth/...`) so they append under
-/// `/api/`. Absolute paths replace the whole path after the host, so the
-/// request becomes `https://stoxify-trader.vercel.app/trades/` ? SPA
-/// `index.html` ? Home tries to parse HTML as a Map and crashes.
+/// On **web**, always use the Azure gateway (same host as WebSockets).
+/// Using `stoxify-trader.vercel.app/api` is fragile: absolute Dio paths
+/// drop `/api`, hit the SPA rewrite, and return `index.html` HTML that
+/// crashes Map casts on Home.
 String get apiBaseUrl {
+  if (kIsWeb) {
+    return '$_cloudBaseUrl/';
+  }
+
   String raw;
   if (kReleaseMode) {
     if (_envBaseUrl.isEmpty) {
@@ -49,7 +52,10 @@ Dio buildDio({
       baseUrl: apiBaseUrl,
       connectTimeout: const Duration(seconds: 10),
       receiveTimeout: const Duration(seconds: 10),
+      // 5xx only ? let 4xx through so callers can read error bodies.
       validateStatus: (code) => code != null && code < 500,
+      // Prefer decode; if server returns HTML text, keep as String (not Map).
+      responseType: ResponseType.json,
     ),
   );
 
@@ -93,7 +99,7 @@ class _SignedAuthInterceptor extends Interceptor {
     _normalizeRelativePath(options);
 
     final method = options.method.toUpperCase();
-    // Browser: /api/auth/...  ?  Vercel rewrite  ?  Azure: /auth/...
+    // Browser proxy: /api/auth/... ? Azure: /auth/...
     // Signature must use the Azure path.
     final path = _pathForSignature(options);
 
@@ -114,6 +120,7 @@ class _SignedAuthInterceptor extends Interceptor {
     );
 
     options.headers['Content-Type'] = 'application/json';
+    options.headers['Accept'] = 'application/json';
     options.headers['X-Device-ID'] = deviceId;
     options.headers.addAll(sigHeaders);
 
@@ -163,6 +170,15 @@ class _SignedAuthInterceptor extends Interceptor {
     return p.startsWith('/auth/');
   }
 
+  /// Detect SPA / HTML bodies (common when /api rewrite is missed).
+  static bool _looksLikeHtml(Object? data) {
+    if (data is! String) return false;
+    final t = data.trimLeft();
+    return t.startsWith('<!DOCTYPE') ||
+        t.startsWith('<!doctype') ||
+        t.startsWith('<html');
+  }
+
   @override
   Future<void> onResponse(
     Response<dynamic> response,
@@ -174,6 +190,22 @@ class _SignedAuthInterceptor extends Interceptor {
       status: response.statusCode,
       responseBody: response.data,
     );
+
+    if (_looksLikeHtml(response.data)) {
+      return handler.reject(
+        DioException(
+          requestOptions: options,
+          response: response,
+          type: DioExceptionType.badResponse,
+          error:
+              'API returned HTML instead of JSON (likely hit Vercel SPA). '
+              'url=${options.uri}',
+          message:
+              'API returned HTML instead of JSON (likely hit Vercel SPA).',
+        ),
+      );
+    }
+
     final isAuthEndpoint = _isAuthPath(options.path);
     final alreadyRetried = options.extra[_retriedFlag] == true;
     if (response.statusCode != 401 || isAuthEndpoint || alreadyRetried) {

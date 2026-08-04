@@ -75,7 +75,8 @@ class NotificationsRemoteDataSource {
       );
       if (res.statusCode == 401) throw const AuthFailure();
       if (res.statusCode == 403 || res.statusCode != 200) return 0;
-      final data = (res.data as Map).cast<String, dynamic>();
+      final data = res.data;
+      if (data is! Map) return 0;
       return (data['total'] as num?)?.toInt() ?? 0;
     } on DioException catch (e) {
       _rethrowNetwork(e);

@@ -108,18 +108,33 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
   }) async {
     try {
       final apiSegment = mapFilterSegmentToApi(state.filterSegment);
-      final feedFuture = _repository.fetchFeed(page: 1, segment: apiSegment);
-      final subsFuture = _repository.fetchSubscriptions();
-      final savedIdsFuture = _repository.fetchSavedTradeIds();
-      final unreadCountFuture = _notificationsRepository.fetchUnreadCount();
-      final profileFuture =
-          includeProfile ? _authRepository.getMe() : null;
 
-      final feed = await feedFuture;
-      final subs = await subsFuture;
-      final savedIds = await savedIdsFuture;
-      final unreadCount = await unreadCountFuture;
-      final profile = profileFuture == null ? null : await profileFuture;
+      // Isolate failures: do not fail the whole Home screen because one
+      // secondary endpoint returned HTML / 401 noise.
+      final feed = await _repository.fetchFeed(page: 1, segment: apiSegment);
+
+      List<HomeSubscription> subs = const <HomeSubscription>[];
+      try {
+        subs = await _repository.fetchSubscriptions();
+      } catch (_) {}
+
+      Set<String> savedIds = const <String>{};
+      try {
+        savedIds = await _repository.fetchSavedTradeIds();
+      } catch (_) {}
+
+      int unreadCount = 0;
+      try {
+        unreadCount = await _notificationsRepository.fetchUnreadCount();
+      } catch (_) {}
+
+      String? greeting;
+      if (includeProfile) {
+        try {
+          final profile = await _authRepository.getMe();
+          greeting = profile.firstName;
+        } catch (_) {}
+      }
 
       var activeTrades =
           feed.trades.where((HomeTrade t) => t.state.isLive).toList();
@@ -132,7 +147,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       emit(
         state.copyWith(
           status: HomeStatus.success,
-          greetingName: profile?.firstName ?? state.greetingName,
+          greetingName: greeting ?? state.greetingName,
           trades: activeTrades,
           cards: _applyLocalFilters(
             activeTrades,
@@ -431,6 +446,11 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
 
   String _messageOf(Object e) {
     final raw = e.toString();
+    if (raw.contains('<!DOCTYPE') ||
+        raw.contains('is not a subtype of type') ||
+        raw.contains('API returned HTML')) {
+      return 'Could not load your feed. Please try again.';
+    }
     return raw.replaceFirst(RegExp(r'^Exception:\s*'), '');
   }
 
