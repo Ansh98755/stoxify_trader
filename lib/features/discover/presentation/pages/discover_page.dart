@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:get_it/get_it.dart';
@@ -15,6 +16,7 @@ import '../../../../core/widgets/app_filter_dialog.dart';
 import '../../../../core/widgets/app_screen_background.dart';
 import '../../../../core/widgets/bottom_navbar.dart';
 import '../../../../core/widgets/common_batch_card.dart';
+import '../../../../core/widgets/web_side_drawer.dart';
 import '../../../home/presentation/widgets/home_search_row.dart';
 import '../../../home/domain/repositories/home_repository.dart';
 import '../../../subscriptions/presentation/pages/subscriptions_page.dart';
@@ -246,149 +248,206 @@ class _DiscoverPageState extends State<DiscoverPage> {
 
   @override
   Widget build(BuildContext context) {
-    return BlocProvider.value(
-      value: _bloc,
-      child: Scaffold(
-        extendBody: true,
-        backgroundColor: ColorConstants.transparent,
-        body: Stack(
-          children: <Widget>[
-            const AppScreenBackground(),
-            SafeArea(
-              child: Padding(
-                padding: AppSize.insets(context, left: 16, right: 16, top: 20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    DiscoverSubTabs(
-                      active: _browseTab,
-                      onChanged: _onBrowseTabChanged,
-                    ),
-                    SizedBox(height: AppSize.h(context, 18)),
-                    HomeSearchRow(
-                      controller: _searchController,
-                      hintText: 'Search analysts or batches',
-                      onChanged: (String value) {
-                        _searchDebounce?.cancel();
-                        _searchDebounce = Timer(
-                          const Duration(milliseconds: 300),
-                          _fetchData,
-                        );
-                      },
-                      onFilterTap: _openFilters,
-                      hasActiveFilters:
-                          !_filters.isDefault ||
-                          _filters.sort != _sortOptions.first,
-                    ),
-                    SizedBox(height: AppSize.h(context, 12)),
-                    Expanded(
-                      child: BlocBuilder<DiscoverBloc, DiscoverState>(
-                        builder: (context, state) {
-                          if (state.status == DiscoverStatus.loading) {
-                            return _browseTab == DiscoverBrowseTab.analysts
-                                ? const ShimmerAnalystList(count: 4)
-                                : const ShimmerBatchList(count: 3);
-                          }
+    final bool isWeb = kIsWeb;
 
-                          if (state.status == DiscoverStatus.failure) {
+    final scaffold = Scaffold(
+      extendBody: !isWeb,
+      backgroundColor: ColorConstants.transparent,
+      body: Stack(
+        children: <Widget>[
+          const AppScreenBackground(),
+          SafeArea(
+            bottom: !isWeb,
+            child: Padding(
+              padding: isWeb
+                  ? const EdgeInsets.fromLTRB(24, 16, 24, 0)
+                  : AppSize.insets(context, left: 16, right: 16, top: 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  DiscoverSubTabs(
+                    active: _browseTab,
+                    onChanged: _onBrowseTabChanged,
+                  ),
+                  SizedBox(height: isWeb ? 14 : AppSize.h(context, 18)),
+                  HomeSearchRow(
+                    controller: _searchController,
+                    hintText: 'Search analysts or batches',
+                    onChanged: (String value) {
+                      _searchDebounce?.cancel();
+                      _searchDebounce = Timer(
+                        const Duration(milliseconds: 300),
+                        _fetchData,
+                      );
+                    },
+                    onFilterTap: _openFilters,
+                    hasActiveFilters:
+                        !_filters.isDefault ||
+                        _filters.sort != _sortOptions.first,
+                  ),
+                  SizedBox(height: isWeb ? 12 : AppSize.h(context, 12)),
+                  Expanded(
+                    child: BlocBuilder<DiscoverBloc, DiscoverState>(
+                      builder: (context, state) {
+                        if (state.status == DiscoverStatus.loading) {
+                          return _browseTab == DiscoverBrowseTab.analysts
+                              ? const ShimmerAnalystList(count: 4)
+                              : const ShimmerBatchList(count: 3);
+                        }
+
+                        if (state.status == DiscoverStatus.failure) {
+                          return _withRefresh(
+                            _EmptyState(
+                              message: 'Error: ${state.error}',
+                            ),
+                          );
+                        }
+
+                        if (_browseTab == DiscoverBrowseTab.analysts) {
+                          final analysts = state.analysts
+                              .map((m) => DiscoverUiMapper.toAnalystData(m))
+                              .toList();
+                          if (analysts.isEmpty) {
                             return _withRefresh(
-                              _EmptyState(
-                                message: 'Error: ${state.error}',
+                              const _EmptyState(
+                                message: 'No analysts match your search',
                               ),
                             );
                           }
-
-                          if (_browseTab == DiscoverBrowseTab.analysts) {
-                            final analysts = state.analysts
-                                .map((m) => DiscoverUiMapper.toAnalystData(m))
-                                .toList();
-                            if (analysts.isEmpty) {
-                              return _withRefresh(
-                                const _EmptyState(
-                                  message: 'No analysts match your search',
-                                ),
-                              );
-                            }
-                            return _withRefresh(
-                              ListView.separated(
-                                physics:
-                                    const AlwaysScrollableScrollPhysics(),
-                                padding: EdgeInsets.only(
-                                  top: AppSize.h(context, 6),
-                                  bottom: AppSize.h(context, 88),
-                                ),
-                                itemCount: analysts.length,
-                                separatorBuilder: (context, index) =>
-                                    SizedBox(height: AppSize.h(context, 20)),
-                                itemBuilder: (context, index) {
-                                  return DiscoverAnalystCard(
-                                    data: analysts[index],
-                                    onTap: () => context.push(
-                                      AppRoutingName.advisorProfile,
-                                      extra: state.analysts[index],
-                                    ),
-                                  );
-                                },
-                              ),
-                            );
-                          } else {
-                            final batches = state.batches
-                                .map((m) => DiscoverUiMapper.toBatchData(m))
-                                .toList();
-                            if (batches.isEmpty) {
-                              return _withRefresh(
-                                const _EmptyState(
-                                  message: 'No batches match your search',
-                                ),
-                              );
-                            }
-                            return _withRefresh(
-                              ListView.separated(
-                                physics:
-                                    const AlwaysScrollableScrollPhysics(),
-                                padding: EdgeInsets.only(
-                                  top: AppSize.h(context, 6),
-                                  bottom: AppSize.h(context, 88),
-                                ),
-                                itemCount: batches.length,
-                                separatorBuilder: (context, index) =>
-                                    SizedBox(height: AppSize.h(context, 20)),
-                                itemBuilder: (context, index) {
-                                  return CommonBatchCard(
-                                    data: batches[index],
-                                    isSubscribed: _activePlanIds.contains(
-                                      state.batches[index].planId,
-                                    ) ||
-                                        state.batches[index].tiers.any(
-                                          (tier) => _activeBatchIds.contains(tier.id),
+                          return _withRefresh(
+                            isWeb
+                                ? _WebTwoColList(
+                                    itemCount: analysts.length,
+                                    itemBuilder: (context, index) {
+                                      return DiscoverAnalystCard(
+                                        data: analysts[index],
+                                        onTap: () => context.push(
+                                          AppRoutingName.advisorProfile,
+                                          extra: state.analysts[index],
                                         ),
-                                    onSubscribe: () => context.push(
-                                      AppRoutingName.subscriptions,
-                                      extra: SubscriptionPageArgs(
-                                        planId: state.batches[index].planId,
-                                        analystId: state.batches[index].analystId,
-                                      ),
+                                      );
+                                    },
+                                  )
+                                : ListView.separated(
+                                    physics:
+                                        const AlwaysScrollableScrollPhysics(),
+                                    padding: EdgeInsets.only(
+                                      top: AppSize.h(context, 6),
+                                      bottom: AppSize.h(context, 88),
                                     ),
-                                    onTap: () => context.push(
-                                      AppRoutingName.batchDetails,
-                                      extra: state.batches[index].planId,
-                                    ),
-                                    onAnalystTap: () => context.push(
-                                      AppRoutingName.advisorProfile,
-                                      extra: state.batches[index].analystId,
-                                    ),
-                                  );
-                                },
+                                    itemCount: analysts.length,
+                                    separatorBuilder: (context, index) =>
+                                        SizedBox(
+                                            height: AppSize.h(context, 20)),
+                                    itemBuilder: (context, index) {
+                                      return DiscoverAnalystCard(
+                                        data: analysts[index],
+                                        onTap: () => context.push(
+                                          AppRoutingName.advisorProfile,
+                                          extra: state.analysts[index],
+                                        ),
+                                      );
+                                    },
+                                  ),
+                          );
+                        } else {
+                          final batches = state.batches
+                              .map((m) => DiscoverUiMapper.toBatchData(m))
+                              .toList();
+                          if (batches.isEmpty) {
+                            return _withRefresh(
+                              const _EmptyState(
+                                message: 'No batches match your search',
                               ),
                             );
                           }
-                        },
-                      ),
+                          return _withRefresh(
+                            isWeb
+                                ? _WebTwoColList(
+                                    itemCount: batches.length,
+                                    itemBuilder: (context, index) {
+                                      return CommonBatchCard(
+                                        data: batches[index],
+                                        isSubscribed: _activePlanIds.contains(
+                                              state.batches[index].planId,
+                                            ) ||
+                                            state.batches[index].tiers.any(
+                                              (tier) => _activeBatchIds
+                                                  .contains(tier.id),
+                                            ),
+                                        onSubscribe: () => context.push(
+                                          AppRoutingName.subscriptions,
+                                          extra: SubscriptionPageArgs(
+                                            planId:
+                                                state.batches[index].planId,
+                                            analystId: state
+                                                .batches[index].analystId,
+                                          ),
+                                        ),
+                                        onTap: () => context.push(
+                                          AppRoutingName.batchDetails,
+                                          extra: state.batches[index].planId,
+                                        ),
+                                        onAnalystTap: () => context.push(
+                                          AppRoutingName.advisorProfile,
+                                          extra:
+                                              state.batches[index].analystId,
+                                        ),
+                                      );
+                                    },
+                                  )
+                                : ListView.separated(
+                                    physics:
+                                        const AlwaysScrollableScrollPhysics(),
+                                    padding: EdgeInsets.only(
+                                      top: AppSize.h(context, 6),
+                                      bottom: AppSize.h(context, 88),
+                                    ),
+                                    itemCount: batches.length,
+                                    separatorBuilder: (context, index) =>
+                                        SizedBox(
+                                            height: AppSize.h(context, 20)),
+                                    itemBuilder: (context, index) {
+                                      return CommonBatchCard(
+                                        data: batches[index],
+                                        isSubscribed: _activePlanIds.contains(
+                                              state.batches[index].planId,
+                                            ) ||
+                                            state.batches[index].tiers.any(
+                                              (tier) => _activeBatchIds
+                                                  .contains(tier.id),
+                                            ),
+                                        onSubscribe: () => context.push(
+                                          AppRoutingName.subscriptions,
+                                          extra: SubscriptionPageArgs(
+                                            planId:
+                                                state.batches[index].planId,
+                                            analystId: state
+                                                .batches[index].analystId,
+                                          ),
+                                        ),
+                                        onTap: () => context.push(
+                                          AppRoutingName.batchDetails,
+                                          extra: state.batches[index].planId,
+                                        ),
+                                        onAnalystTap: () => context.push(
+                                          AppRoutingName.advisorProfile,
+                                          extra:
+                                              state.batches[index].analystId,
+                                        ),
+                                      );
+                                    },
+                                  ),
+                          );
+                        }
+                      },
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
+          ),
+          if (!isWeb)
             Positioned(
               left: 0,
               right: 0,
@@ -401,9 +460,55 @@ class _DiscoverPageState extends State<DiscoverPage> {
                 },
               ),
             ),
-          ],
-        ),
+        ],
       ),
+    );
+
+    return BlocProvider.value(
+      value: _bloc,
+      child: isWeb
+          ? WebSideDrawer(currentIndex: 1, child: scaffold)
+          : scaffold,
+    );
+  }
+}
+
+/// Web-only 2-column list (analysts / batches) with a max content width.
+class _WebTwoColList extends StatelessWidget {
+  const _WebTwoColList({
+    required this.itemCount,
+    required this.itemBuilder,
+  });
+
+  final int itemCount;
+  final IndexedWidgetBuilder itemBuilder;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const double maxWidth = 1080;
+        final double side = constraints.maxWidth > maxWidth
+            ? (constraints.maxWidth - maxWidth) / 2
+            : 0;
+        return GridView.builder(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: EdgeInsets.fromLTRB(side, 6, side, 24),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            mainAxisSpacing: 16,
+            crossAxisSpacing: 16,
+            mainAxisExtent: 220,
+          ),
+          itemCount: itemCount,
+          itemBuilder: (context, index) {
+            return Align(
+              alignment: Alignment.topCenter,
+              child: itemBuilder(context, index),
+            );
+          },
+        );
+      },
     );
   }
 }

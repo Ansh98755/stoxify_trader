@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
 import 'package:go_router/go_router.dart';
@@ -12,6 +13,7 @@ import '../../../../core/widgets/app_chrome.dart';
 import '../../../../core/widgets/common_app_notification_bar.dart';
 import '../../../../core/widgets/app_screen_background.dart';
 import '../../../../core/widgets/bottom_navbar.dart';
+import '../../../../core/widgets/web_side_drawer.dart';
 import '../../../auth/domain/entities/auth_user.dart';
 import '../../../auth/domain/repositories/auth_repository.dart';
 import '../../../auth/presentation/widgets/otp_entry_dialog.dart';
@@ -194,25 +196,30 @@ class _ProfilePageState extends State<ProfilePage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      extendBody: true,
+    final bool isWeb = kIsWeb;
+
+    final scaffold = Scaffold(
+      extendBody: !isWeb,
       backgroundColor: ColorConstants.transparent,
       body: Stack(
         children: <Widget>[
           const AppScreenBackground(),
           SafeArea(
+            bottom: !isWeb,
             child: Padding(
-              padding: AppSize.insets(context, left: 16, right: 16),
+              padding: isWeb
+                  ? const EdgeInsets.fromLTRB(24, 16, 24, 0)
+                  : AppSize.insets(context, left: 16, right: 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   Text(
                     'Profile',
                     style: TextStyleConstants.screenTitle.copyWith(
-                      fontSize: AppSize.sp(context, 22),
+                      fontSize: isWeb ? 22 : AppSize.sp(context, 22),
                     ),
                   ),
-                  SizedBox(height: AppSize.h(context, 14)),
+                  SizedBox(height: isWeb ? 14 : AppSize.h(context, 14)),
                   FutureBuilder<AuthUser>(
                     future: _profileFuture,
                     builder: (context, snapshot) {
@@ -225,7 +232,7 @@ class _ProfilePageState extends State<ProfilePage> {
                       );
                     },
                   ),
-                  SizedBox(height: AppSize.h(context, 16)),
+                  SizedBox(height: isWeb ? 16 : AppSize.h(context, 16)),
                   Expanded(
                     child: ListView(
                       children: <Widget>[
@@ -235,14 +242,14 @@ class _ProfilePageState extends State<ProfilePage> {
                           leading: _icon(Icons.person_outline_rounded),
                           onTap: _showPersonalInfo,
                         ),
-                        SizedBox(height: AppSize.h(context, 10)),
+                        SizedBox(height: isWeb ? 10 : AppSize.h(context, 10)),
                         AppMenuListTile(
                           title: 'Trading preferences',
                           subtitle: 'Segments you follow',
                           leading: _icon(Icons.tune_rounded),
                           onTap: () => context.push(AppRoutingName.interest),
                         ),
-                        SizedBox(height: AppSize.h(context, 10)),
+                        SizedBox(height: isWeb ? 10 : AppSize.h(context, 10)),
                         AppMenuListTile(
                           title: 'My subscriptions',
                           subtitle: 'Manage active plans',
@@ -250,7 +257,7 @@ class _ProfilePageState extends State<ProfilePage> {
                           onTap: () =>
                               context.push(AppRoutingName.mySubscriptions),
                         ),
-                        SizedBox(height: AppSize.h(context, 10)),
+                        SizedBox(height: isWeb ? 10 : AppSize.h(context, 10)),
                         AppMenuListTile(
                           title: 'Payment history',
                           subtitle: 'View completed and failed payments',
@@ -258,7 +265,7 @@ class _ProfilePageState extends State<ProfilePage> {
                           onTap: () =>
                               context.push(AppRoutingName.paymentHistory),
                         ),
-                        SizedBox(height: AppSize.h(context, 10)),
+                        SizedBox(height: isWeb ? 10 : AppSize.h(context, 10)),
                         AppMenuListTile(
                           title: 'Saved trades',
                           subtitle: 'Trades you bookmarked',
@@ -266,7 +273,7 @@ class _ProfilePageState extends State<ProfilePage> {
                           onTap: () =>
                               context.push(AppRoutingName.savedTrades),
                         ),
-                        SizedBox(height: AppSize.h(context, 10)),
+                        SizedBox(height: isWeb ? 10 : AppSize.h(context, 10)),
                         AppMenuListTile(
                           title: 'Notifications',
                           subtitle: 'Trade alerts & renewals',
@@ -274,7 +281,7 @@ class _ProfilePageState extends State<ProfilePage> {
                           onTap: () =>
                               context.push(AppRoutingName.notifications),
                         ),
-                        SizedBox(height: AppSize.h(context, 10)),
+                        SizedBox(height: isWeb ? 10 : AppSize.h(context, 10)),
                         FutureBuilder<AuthUser>(
                           future: _profileFuture,
                           builder: (context, snapshot) {
@@ -299,7 +306,10 @@ class _ProfilePageState extends State<ProfilePage> {
                                   ),
                                   onTap: () => _openKyc(snapshot.data),
                                 ),
-                                SizedBox(height: AppSize.h(context, 10)),
+                                SizedBox(
+                                    height: isWeb
+                                        ? 10
+                                        : AppSize.h(context, 10)),
                               ],
                             );
                           },
@@ -310,7 +320,7 @@ class _ProfilePageState extends State<ProfilePage> {
                           leading: _icon(Icons.settings_outlined),
                           onTap: () => context.push(AppRoutingName.settings),
                         ),
-                        SizedBox(height: AppSize.h(context, 10)),
+                        SizedBox(height: isWeb ? 10 : AppSize.h(context, 10)),
                         AppMenuListTile(
                           title: _loggingOut ? 'Logging out...' : 'Log out',
                           subtitle: 'Sign out of this device',
@@ -332,7 +342,7 @@ class _ProfilePageState extends State<ProfilePage> {
                           destructive: true,
                           onTap: _logout,
                         ),
-                        SizedBox(height: AppSize.h(context, 10)),
+                        SizedBox(height: isWeb ? 10 : AppSize.h(context, 10)),
                         AppMenuListTile(
                           title: 'Delete account',
                           leading: _icon(
@@ -342,7 +352,7 @@ class _ProfilePageState extends State<ProfilePage> {
                           destructive: true,
                           onTap: _deleteAccount,
                         ),
-                        SizedBox(height: AppSize.h(context, 88)),
+                        SizedBox(height: isWeb ? 24 : AppSize.h(context, 88)),
                       ],
                     ),
                   ),
@@ -350,21 +360,27 @@ class _ProfilePageState extends State<ProfilePage> {
               ),
             ),
           ),
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: BottomNavbar(
-              currentIndex: 3,
-              onItemSelected: (int index) {
-                if (index == 3) return;
-                navigateMainTab(context, index);
-              },
+          if (!isWeb)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: BottomNavbar(
+                currentIndex: 3,
+                onItemSelected: (int index) {
+                  if (index == 3) return;
+                  navigateMainTab(context, index);
+                },
+              ),
             ),
-          ),
         ],
       ),
     );
+
+    if (isWeb) {
+      return WebSideDrawer(currentIndex: 3, child: scaffold);
+    }
+    return scaffold;
   }
 
   static Widget _icon(IconData icon, {Color color = ColorConstants.brandBlue}) {

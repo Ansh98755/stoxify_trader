@@ -18,6 +18,7 @@ import '../../../../core/widgets/bottom_navbar.dart';
 import '../../../../core/widgets/common_app_notification_bar.dart';
 import '../../../../core/widgets/common_trading_card.dart';
 import '../../../../core/widgets/web_side_drawer.dart';
+import '../../../../core/widgets/web_trade_card_layout.dart';
 import '../../../../../shared/models/trading_card_data.dart';
 import '../../domain/entities/home_trade.dart';
 import '../bloc/home_bloc.dart';
@@ -339,23 +340,11 @@ class _HomeViewState extends State<_HomeView> {
                                   // ── Loading shimmer ─────────────────
                                   if (state.isLoading) ...<Widget>[
                                     if (isWeb)
-                                      SliverPadding(
+                                      WebTradeCardGridSliver(
                                         padding: const EdgeInsets.only(top: 8),
-                                        sliver: SliverGrid(
-                                          gridDelegate:
-                                              const SliverGridDelegateWithFixedCrossAxisCount(
-                                            crossAxisCount: 2,
-                                            mainAxisSpacing: 16,
-                                            crossAxisSpacing: 16,
-                                            childAspectRatio: 0.88,
-                                          ),
-                                          delegate:
-                                              SliverChildBuilderDelegate(
-                                            (_, _) =>
-                                                const ShimmerTradeCard(),
-                                            childCount: 4,
-                                          ),
-                                        ),
+                                        itemCount: 4,
+                                        itemBuilder: (_, _) =>
+                                            const ShimmerTradeCard(),
                                       )
                                     else
                                       SliverToBoxAdapter(
@@ -399,66 +388,50 @@ class _HomeViewState extends State<_HomeView> {
                                     )
                                   // ── Card grid (web) / list (mobile) ─
                                   else if (isWeb)
-                                    SliverPadding(
+                                    WebTradeCardGridSliver(
                                       padding:
                                           const EdgeInsets.only(bottom: 32),
-                                      sliver: SliverGrid(
-                                        gridDelegate:
-                                            const SliverGridDelegateWithFixedCrossAxisCount(
-                                          crossAxisCount: 2,
-                                          mainAxisSpacing: 16,
-                                          crossAxisSpacing: 16,
-                                          childAspectRatio: 0.82,
-                                        ),
-                                        delegate:
-                                            SliverChildBuilderDelegate(
+                                      itemCount: state.cards.length +
+                                          (state.isLoadingMore ? 1 : 0),
+                                      itemBuilder:
                                           (BuildContext context, int index) {
-                                            if (index >=
-                                                state.cards.length) {
-                                              return const Center(
-                                                child: SizedBox(
-                                                  width: 22,
-                                                  height: 22,
-                                                  child:
-                                                      CircularProgressIndicator(
-                                                    strokeWidth: 2,
-                                                  ),
-                                                ),
-                                              );
-                                            }
-                                            final TradingCardData card =
-                                                state.cards[index];
-                                            final HomeTrade trade =
-                                                state.trades[index];
-                                            final String? tid =
-                                                card.tradeId;
-                                            final bool saved = tid != null &&
-                                                state.savedTradeIds
-                                                    .contains(tid);
-                                            return CommonTradingCard(
-                                              key: ValueKey<String>(
-                                                  'card_${card.symbol}_$index'),
-                                              data: card.copyWith(
-                                                isSaved: saved,
-                                                onSaveTap: tid == null
-                                                    ? null
-                                                    : () => _onSaveTap(
-                                                          tradeId: tid,
-                                                        ),
+                                        if (index >= state.cards.length) {
+                                          return const Center(
+                                            child: SizedBox(
+                                              width: 22,
+                                              height: 22,
+                                              child:
+                                                  CircularProgressIndicator(
+                                                strokeWidth: 2,
                                               ),
-                                              onViewDetails: () =>
-                                                  context.push(
-                                                AppRoutingName.tradeDetails,
-                                                extra: trade,
-                                              ),
-                                            );
-                                          },
-                                          childCount: state.cards.length +
-                                              (state.isLoadingMore ? 1 : 0),
-                                          addRepaintBoundaries: false,
-                                          addAutomaticKeepAlives: false,
-                                        ),
-                                      ),
+                                            ),
+                                          );
+                                        }
+                                        final TradingCardData card =
+                                            state.cards[index];
+                                        final HomeTrade trade =
+                                            state.trades[index];
+                                        final String? tid = card.tradeId;
+                                        final bool saved = tid != null &&
+                                            state.savedTradeIds
+                                                .contains(tid);
+                                        return CommonTradingCard(
+                                          key: ValueKey<String>(
+                                              'card_${card.symbol}_$index'),
+                                          data: card.copyWith(
+                                            isSaved: saved,
+                                            onSaveTap: tid == null
+                                                ? null
+                                                : () => _onSaveTap(
+                                                      tradeId: tid,
+                                                    ),
+                                          ),
+                                          onViewDetails: () => context.push(
+                                            AppRoutingName.tradeDetails,
+                                            extra: trade,
+                                          ),
+                                        );
+                                      },
                                     )
                                   else
                                     SliverList(

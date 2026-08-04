@@ -51,22 +51,23 @@ class WebSideDrawer extends StatelessWidget {
   Widget build(BuildContext context) {
     if (!kIsWeb) return child;
 
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _DrawerPanel(
-          currentIndex: currentIndex,
-          items: _items,
-          drawerWidth: _drawerWidth,
-        ),
-        // Vertical divider
-        Container(
-          width: 1,
-          color: ColorConstants.line,
-        ),
-        // Main content
-        Expanded(child: child),
-      ],
+    return Material(
+      color: ColorConstants.white,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _DrawerPanel(
+            currentIndex: currentIndex,
+            items: _items,
+            drawerWidth: _drawerWidth,
+          ),
+          Container(
+            width: 1,
+            color: ColorConstants.line,
+          ),
+          Expanded(child: child),
+        ],
+      ),
     );
   }
 }
@@ -86,10 +87,8 @@ class _DrawerPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox(
       width: drawerWidth,
-      child: Container(
-        decoration: const BoxDecoration(
-          color: ColorConstants.white,
-        ),
+      child: ColoredBox(
+        color: ColorConstants.white,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
 import 'package:go_router/go_router.dart';
@@ -16,6 +17,8 @@ import '../../../../core/utils/main_tab_navigation.dart';
 import '../../../../core/widgets/app_screen_background.dart';
 import '../../../../core/widgets/bottom_navbar.dart';
 import '../../../../core/widgets/common_trading_card.dart';
+import '../../../../core/widgets/web_side_drawer.dart';
+import '../../../../core/widgets/web_trade_card_layout.dart';
 import '../../../home/domain/entities/home_trade.dart';
 import '../../../home/domain/repositories/home_repository.dart';
 import '../../../home/presentation/bloc/home_bloc.dart';
@@ -199,12 +202,13 @@ class _TradesPageState extends State<TradesPage> {
 
   @override
   Widget build(BuildContext context) {
+    final bool isWeb = kIsWeb;
     final sectionLabel = _statusTab == TradesStatusTab.active
         ? 'Active trades'
         : 'Closed trades';
 
-    return Scaffold(
-      extendBody: true,
+    final scaffold = Scaffold(
+      extendBody: !isWeb,
       backgroundColor: ColorConstants.transparent,
       body: Stack(
         children: <Widget>[
@@ -213,51 +217,74 @@ class _TradesPageState extends State<TradesPage> {
           ),
           RepaintBoundary(
             child: SafeArea(
+              bottom: !isWeb,
               child: Padding(
-                padding: AppSize.insets(context, left: 16, right: 16),
+                padding: isWeb
+                    ? const EdgeInsets.fromLTRB(24, 16, 24, 0)
+                    : AppSize.insets(context, left: 16, right: 16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    SizedBox(height: AppSize.h(context, 18)),
+                    SizedBox(height: isWeb ? 8 : AppSize.h(context, 18)),
                     TradesStatusTabs(
                       active: _statusTab,
                       onChanged: _changeTab,
                     ),
-                    SizedBox(height: AppSize.h(context, 12)),
+                    SizedBox(height: isWeb ? 12 : AppSize.h(context, 12)),
                     Text(
                       sectionLabel,
                       style: TextStyleConstants.bodyMedium.copyWith(
-                        fontSize: AppSize.sp(context, 13),
+                        fontSize: isWeb ? 14 : AppSize.sp(context, 13),
                         fontWeight: FontWeight.w600,
                         color: ColorConstants.mute,
                       ),
                     ),
-                    SizedBox(height: AppSize.h(context, 8)),
+                    SizedBox(height: isWeb ? 8 : AppSize.h(context, 8)),
                     Expanded(child: _buildContent()),
                   ],
                 ),
               ),
             ),
           ),
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: BottomNavbar(
-              currentIndex: 2,
-              onItemSelected: (int index) {
-                if (index == 2) return;
-                navigateMainTab(context, index);
-              },
+          if (!isWeb)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: BottomNavbar(
+                currentIndex: 2,
+                onItemSelected: (int index) {
+                  if (index == 2) return;
+                  navigateMainTab(context, index);
+                },
+              ),
             ),
-          ),
         ],
       ),
     );
+
+    if (isWeb) {
+      return WebSideDrawer(currentIndex: 2, child: scaffold);
+    }
+    return scaffold;
   }
 
   Widget _buildContent() {
+    final bool isWeb = kIsWeb;
+
     if (_loading) {
+      if (isWeb) {
+        return CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: <Widget>[
+            WebTradeCardGridSliver(
+              padding: const EdgeInsets.only(top: 4, bottom: 24),
+              itemCount: 4,
+              itemBuilder: (_, _) => const ShimmerTradeCard(),
+            ),
+          ],
+        );
+      }
       return ShimmerTradeList(
         count: 5,
         padding: AppSize.insets(context, left: 0, right: 0, top: 4, bottom: 88),
@@ -290,42 +317,66 @@ class _TradesPageState extends State<TradesPage> {
         controller: _scrollController,
         physics: const AlwaysScrollableScrollPhysics(),
         slivers: <Widget>[
-          SliverList(
-            delegate: SliverChildBuilderDelegate(
-              (context, index) {
+          if (isWeb)
+            WebTradeCardGridSliver(
+              padding: const EdgeInsets.only(bottom: 32),
+              itemCount: _trades.length + (_loadingMore ? 1 : 0),
+              itemBuilder: (context, index) {
                 if (index == _trades.length) {
-                  return Padding(
-                    padding: AppSize.symmetric(context, vertical: 16),
-                    child: const Center(
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
+                  return const Center(
+                    child: CircularProgressIndicator(strokeWidth: 2),
                   );
                 }
                 final trade = _trades[index];
                 final card = mapHomeTradeToCard(trade);
-                return Padding(
+                return CommonTradingCard(
                   key: ValueKey<String>('trade_${trade.id}'),
-                  padding: EdgeInsets.only(
-                    top: AppSize.h(context, 8),
-                    bottom: AppSize.h(context, 12),
-                  ),
-                  child: CommonTradingCard(
-                    data: card,
-                    onViewDetails: () => context.push(
-                      AppRoutingName.tradeDetails,
-                      extra: trade,
-                    ),
+                  data: card,
+                  onViewDetails: () => context.push(
+                    AppRoutingName.tradeDetails,
+                    extra: trade,
                   ),
                 );
               },
-              childCount: _trades.length + (_loadingMore ? 1 : 0),
-              addRepaintBoundaries: false,
-              addAutomaticKeepAlives: false,
+            )
+          else ...<Widget>[
+            SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (context, index) {
+                  if (index == _trades.length) {
+                    return Padding(
+                      padding: AppSize.symmetric(context, vertical: 16),
+                      child: const Center(
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    );
+                  }
+                  final trade = _trades[index];
+                  final card = mapHomeTradeToCard(trade);
+                  return Padding(
+                    key: ValueKey<String>('trade_${trade.id}'),
+                    padding: EdgeInsets.only(
+                      top: AppSize.h(context, 8),
+                      bottom: AppSize.h(context, 12),
+                    ),
+                    child: CommonTradingCard(
+                      data: card,
+                      onViewDetails: () => context.push(
+                        AppRoutingName.tradeDetails,
+                        extra: trade,
+                      ),
+                    ),
+                  );
+                },
+                childCount: _trades.length + (_loadingMore ? 1 : 0),
+                addRepaintBoundaries: false,
+                addAutomaticKeepAlives: false,
+              ),
             ),
-          ),
-          SliverToBoxAdapter(
-            child: SizedBox(height: AppSize.h(context, 96)),
-          ),
+            SliverToBoxAdapter(
+              child: SizedBox(height: AppSize.h(context, 96)),
+            ),
+          ],
         ],
       ),
     );
