@@ -13,18 +13,29 @@ const _envBaseUrl = String.fromEnvironment('API_BASE_URL');
 const _cloudBaseUrl =
     'https://stoxify-gateway.thankfulriver-811030ea.centralindia.azurecontainerapps.io';
 
+/// Resolved API origin for Dio. Always ends with `/`.
+///
+/// Production web uses a base like `https://stoxify-trader.vercel.app/api/`.
+/// Paths must be *relative* (`auth/...`, not `/auth/...`) so they append under
+/// `/api/`. Absolute paths replace the whole path after the host, so the
+/// request becomes `https://stoxify-trader.vercel.app/trades/` ? SPA
+/// `index.html` ? Home tries to parse HTML as a Map and crashes.
 String get apiBaseUrl {
+  String raw;
   if (kReleaseMode) {
-    if (_envBaseUrl.isEmpty) return _cloudBaseUrl;
-    if (!_envBaseUrl.startsWith('https://')) {
+    if (_envBaseUrl.isEmpty) {
+      raw = _cloudBaseUrl;
+    } else if (!_envBaseUrl.startsWith('https://')) {
       throw StateError(
         'Release builds require an HTTPS API_BASE_URL; got "$_envBaseUrl".',
       );
+    } else {
+      raw = _envBaseUrl;
     }
-    return _envBaseUrl;
+  } else {
+    raw = _envBaseUrl.isNotEmpty ? _envBaseUrl : _cloudBaseUrl;
   }
-  if (_envBaseUrl.isNotEmpty) return _envBaseUrl;
-  return _cloudBaseUrl;
+  return raw.endsWith('/') ? raw : '$raw/';
 }
 
 Dio buildDio({
@@ -78,10 +89,12 @@ class _SignedAuthInterceptor extends Interceptor {
     RequestOptions options,
     RequestInterceptorHandler handler,
   ) async {
+    // Join under baseUrl (.../api/) instead of replacing host path.
+    _normalizeRelativePath(options);
+
     final method = options.method.toUpperCase();
-    // Gateway verifies the path *after* the Vercel /api reverse-proxy rewrite.
-    // Browser hits `/api/auth/...` but Azure sees `/auth/...` ? sign the
-    // upstream path so it matches what the gateway recomputes.
+    // Browser: /api/auth/...  ?  Vercel rewrite  ?  Azure: /auth/...
+    // Signature must use the Azure path.
     final path = _pathForSignature(options);
 
     final isBodyless = method == 'GET' || method == 'HEAD';
@@ -113,12 +126,16 @@ class _SignedAuthInterceptor extends Interceptor {
     handler.next(options);
   }
 
-  /// Path used in the ECDSA message: `METHOD|path|body|ts|nonce|deviceId`.
-  ///
-  /// Always the gateway path (e.g. `/auth/login/request-otp`), never the
-  /// browser proxy prefix (`/api/...`).
+  static void _normalizeRelativePath(RequestOptions options) {
+    final p = options.path;
+    if (p.startsWith('http://') || p.startsWith('https://')) return;
+    if (p.startsWith('/')) {
+      options.path = p.substring(1);
+    }
+  }
+
+  /// Gateway path for ECDSA: `/auth/login/request-otp` (never `/api/...`).
   static String _pathForSignature(RequestOptions options) {
-    // Prefer the path passed to Dio (e.g. '/auth/login/request-otp').
     var path = options.path;
     if (path.isEmpty) {
       path = options.uri.path;
@@ -130,16 +147,20 @@ class _SignedAuthInterceptor extends Interceptor {
     if (query.isNotEmpty && !path.contains('?')) {
       path = '$path?$query';
     }
-    // Resolved URI with base `.../api` can become `/api/auth/...`.
     if (path == '/api') {
       path = '/';
     } else if (path.startsWith('/api/')) {
-      path = path.substring(4); // '/api'.length
+      path = path.substring(4);
     } else if (path.startsWith('/api?')) {
       path = path.replaceFirst('/api', '');
       if (!path.startsWith('/')) path = '/$path';
     }
     return path;
+  }
+
+  static bool _isAuthPath(String path) {
+    final p = path.startsWith('/') ? path : '/$path';
+    return p.startsWith('/auth/');
   }
 
   @override
@@ -153,7 +174,7 @@ class _SignedAuthInterceptor extends Interceptor {
       status: response.statusCode,
       responseBody: response.data,
     );
-    final isAuthEndpoint = options.path.startsWith('/auth/');
+    final isAuthEndpoint = _isAuthPath(options.path);
     final alreadyRetried = options.extra[_retriedFlag] == true;
     if (response.statusCode != 401 || isAuthEndpoint || alreadyRetried) {
       return handler.next(response);
