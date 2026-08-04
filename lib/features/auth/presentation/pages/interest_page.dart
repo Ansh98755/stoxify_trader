@@ -7,6 +7,7 @@ import '../../../../core/constants/text_style_constants.dart';
 import '../../../../core/di/injection.dart';
 import '../../../../core/utils/app_size.dart';
 import '../../../../core/widgets/common_button_widget.dart';
+import '../../../../core/widgets/app_loader.dart';
 import '../../domain/repositories/auth_repository.dart';
 
 class InterestPage extends StatefulWidget {
@@ -84,7 +85,9 @@ class _InterestPageState extends State<InterestPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: ColorConstants.pageBackground,
-      body: SafeArea(
+      body: Stack(
+        children: <Widget>[
+          SafeArea(
         child: Padding(
           padding: AppSize.insets(context, left: 20, right: 20, top: 16, bottom: 22),
           child: Column(
@@ -221,6 +224,9 @@ class _InterestPageState extends State<InterestPage> {
             ],
           ),
         ),
+          ),
+          if (_isSubmitting) const Positioned.fill(child: AppLoaderOverlay()),
+        ],
       ),
     );
   }

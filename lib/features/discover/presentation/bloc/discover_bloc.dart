@@ -13,11 +13,16 @@ class DiscoverBloc extends Bloc<DiscoverEvent, DiscoverState> {
   }
 
   final DiscoverRepository _repository;
+  int _requestEpoch = 0;
 
   Future<void> _onLoadRequested(
     DiscoverLoadRequested event,
     Emitter<DiscoverState> emit,
   ) async {
+    final request = ++_requestEpoch;
+    // Guard — skip network call if data is already loaded and this is not
+    // a manual refresh. The repository cache (SWR) handles background
+    // revalidation on subsequent fetches.
     if (!event.isRefresh) {
       emit(state.copyWith(status: DiscoverStatus.loading));
     }
@@ -28,9 +33,10 @@ class DiscoverBloc extends Bloc<DiscoverEvent, DiscoverState> {
         segment: event.segment,
         horizon: event.horizon,
         sort: event.sort,
+        forceRefresh: event.isRefresh,
       );
-      final facetsFuture = state.analystFacets == null
-          ? _repository.fetchAnalystFacets()
+      final facetsFuture = state.analystFacets == null || event.isRefresh
+          ? _repository.fetchAnalystFacets(forceRefresh: event.isRefresh)
           : Future.value(state.analystFacets!);
 
       final analysts = await analystsFuture;
@@ -40,6 +46,7 @@ class DiscoverBloc extends Bloc<DiscoverEvent, DiscoverState> {
       } catch (_) {
         facets = state.analystFacets;
       }
+      if (request != _requestEpoch) return;
       emit(
         state.copyWith(
           status: DiscoverStatus.success,
@@ -48,6 +55,7 @@ class DiscoverBloc extends Bloc<DiscoverEvent, DiscoverState> {
         ),
       );
     } catch (e) {
+      if (request != _requestEpoch) return;
       emit(state.copyWith(status: DiscoverStatus.failure, error: e.toString()));
     }
   }
@@ -56,6 +64,9 @@ class DiscoverBloc extends Bloc<DiscoverEvent, DiscoverState> {
     DiscoverBatchesLoadRequested event,
     Emitter<DiscoverState> emit,
   ) async {
+    final request = ++_requestEpoch;
+    // Guard — skip network call if data is already loaded and this is not
+    // a manual refresh.
     if (!event.isRefresh) {
       emit(state.copyWith(status: DiscoverStatus.loading));
     }
@@ -67,9 +78,10 @@ class DiscoverBloc extends Bloc<DiscoverEvent, DiscoverState> {
         horizon: event.horizon,
         riskLevel: event.riskLevel,
         sort: event.sort,
+        forceRefresh: event.isRefresh,
       );
-      final facetsFuture = state.planFacets == null
-          ? _repository.fetchPlanFacets()
+      final facetsFuture = state.planFacets == null || event.isRefresh
+          ? _repository.fetchPlanFacets(forceRefresh: event.isRefresh)
           : Future.value(state.planFacets!);
       final batches = await batchesFuture;
       DiscoverPlanFacets? facets;
@@ -78,6 +90,7 @@ class DiscoverBloc extends Bloc<DiscoverEvent, DiscoverState> {
       } catch (_) {
         facets = state.planFacets;
       }
+      if (request != _requestEpoch) return;
       emit(
         state.copyWith(
           status: DiscoverStatus.success,
@@ -86,6 +99,7 @@ class DiscoverBloc extends Bloc<DiscoverEvent, DiscoverState> {
         ),
       );
     } catch (e) {
+      if (request != _requestEpoch) return;
       emit(state.copyWith(status: DiscoverStatus.failure, error: e.toString()));
     }
   }

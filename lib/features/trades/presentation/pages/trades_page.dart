@@ -5,10 +5,12 @@ import 'package:get_it/get_it.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../app/routes/app_routing_name.dart';
+import '../../../../core/constants/asset_constants.dart';
 import '../../../../core/constants/color_constants.dart';
 import '../../../../core/constants/text_style_constants.dart';
 import '../../../../core/network/websocket_service.dart';
 import '../../../../core/services/live_prices_service.dart';
+import '../../../../core/shimmer/shimmer_widgets.dart';
 import '../../../../core/utils/app_size.dart';
 import '../../../../core/utils/main_tab_navigation.dart';
 import '../../../../core/widgets/app_screen_background.dart';
@@ -16,6 +18,7 @@ import '../../../../core/widgets/bottom_navbar.dart';
 import '../../../../core/widgets/common_trading_card.dart';
 import '../../../home/domain/entities/home_trade.dart';
 import '../../../home/domain/repositories/home_repository.dart';
+import '../../../home/presentation/bloc/home_bloc.dart';
 import '../../../home/presentation/mappers/home_ui_mapper.dart';
 import '../widgets/trades_status_tabs.dart';
 
@@ -255,7 +258,10 @@ class _TradesPageState extends State<TradesPage> {
 
   Widget _buildContent() {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+      return ShimmerTradeList(
+        count: 5,
+        padding: AppSize.insets(context, left: 0, right: 0, top: 4, bottom: 88),
+      );
     }
     if (_error != null) {
       return _MessageState(
@@ -265,6 +271,11 @@ class _TradesPageState extends State<TradesPage> {
       );
     }
     if (_trades.isEmpty) {
+      // For new users on the active tab show the onboarding card with steps.
+      final isNewUser = GetIt.instance<HomeBloc>().state.isNewUser;
+      if (_statusTab == TradesStatusTab.active && isNewUser) {
+        return _NewUserEmptyState();
+      }
       return _MessageState(
         message: _statusTab == TradesStatusTab.active
             ? 'No active trades yet'
@@ -354,6 +365,148 @@ class _MessageState extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+/// Onboarding empty-state card shown to new users on the active trades tab.
+/// Mirrors the card on the Home screen.
+class _NewUserEmptyState extends StatelessWidget {
+  const _NewUserEmptyState();
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      child: Padding(
+        padding: EdgeInsets.only(
+          top: AppSize.h(context, 16),
+          bottom: AppSize.h(context, 24),
+        ),
+        child: Container(
+          width: double.infinity,
+          padding: AppSize.insets(
+            context,
+            left: 20,
+            right: 20,
+            top: 24,
+            bottom: 24,
+          ),
+          decoration: BoxDecoration(
+            color: ColorConstants.white,
+            borderRadius: BorderRadius.circular(AppSize.r(context, 16)),
+            border: Border.all(color: ColorConstants.line),
+            boxShadow: <BoxShadow>[
+              BoxShadow(
+                color: ColorConstants.shadowSoft.withValues(alpha: 0.04),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Image.asset(
+                AssetConstants.noTradeIcon,
+                width: AppSize.r(context, 72),
+                height: AppSize.r(context, 72),
+                fit: BoxFit.contain,
+              ),
+              SizedBox(height: AppSize.h(context, 16)),
+              Text(
+                'No live recommendations yet',
+                textAlign: TextAlign.center,
+                style: TextStyleConstants.cardTitle.copyWith(
+                  fontSize: AppSize.sp(context, 16),
+                  color: ColorConstants.ink,
+                ),
+              ),
+              SizedBox(height: AppSize.h(context, 6)),
+              Text(
+                'To see trades:',
+                textAlign: TextAlign.center,
+                style: TextStyleConstants.bodyMedium.copyWith(
+                  fontSize: AppSize.sp(context, 13),
+                  color: ColorConstants.mute,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              SizedBox(height: AppSize.h(context, 12)),
+              Container(
+                padding: AppSize.insets(
+                  context,
+                  left: 16,
+                  right: 16,
+                  top: 12,
+                  bottom: 12,
+                ),
+                decoration: BoxDecoration(
+                  color: ColorConstants.gray50,
+                  borderRadius:
+                      BorderRadius.circular(AppSize.r(context, 12)),
+                  border: Border.all(color: ColorConstants.line),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    _TradesEmptyStepRow(number: '1', text: 'Complete your KYC'),
+                    SizedBox(height: AppSize.h(context, 8)),
+                    _TradesEmptyStepRow(
+                        number: '2', text: 'Subscribe to analysts'),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TradesEmptyStepRow extends StatelessWidget {
+  const _TradesEmptyStepRow({
+    required this.number,
+    required this.text,
+  });
+
+  final String number;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: <Widget>[
+        Container(
+          width: AppSize.r(context, 20),
+          height: AppSize.r(context, 20),
+          decoration: const BoxDecoration(
+            color: ColorConstants.brandBlue,
+            shape: BoxShape.circle,
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            number,
+            style: TextStyleConstants.caption.copyWith(
+              color: ColorConstants.white,
+              fontWeight: FontWeight.bold,
+              fontSize: AppSize.sp(context, 11),
+            ),
+          ),
+        ),
+        SizedBox(width: AppSize.w(context, 10)),
+        Expanded(
+          child: Text(
+            text,
+            style: TextStyleConstants.bodyMedium.copyWith(
+              color: ColorConstants.ink,
+              fontSize: AppSize.sp(context, 13),
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

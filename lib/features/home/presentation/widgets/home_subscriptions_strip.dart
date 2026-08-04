@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/constants/color_constants.dart';
 import '../../../../core/constants/text_style_constants.dart';
+import '../../../../core/shimmer/shimmer_widgets.dart';
 import '../../../../core/utils/app_size.dart';
 
 class HomeSubscriptionItem {
@@ -10,14 +11,21 @@ class HomeSubscriptionItem {
     required this.initials,
     required this.name,
     required this.activeUntil,
+    this.batchName,
+    this.analystName,
     this.avatarStart = const Color(0xFF60A5FA),
     this.avatarEnd = ColorConstants.brandBlue,
   });
 
   final String id;
   final String initials;
+  /// Kept for backward-compat — equals batchName ?? analystName.
   final String name;
   final String activeUntil;
+  /// Shown on the first line of the tile.
+  final String? batchName;
+  /// Shown on the second line of the tile (below batch name).
+  final String? analystName;
   final Color avatarStart;
   final Color avatarEnd;
 }
@@ -76,15 +84,9 @@ class HomeSubscriptionsStrip extends StatelessWidget {
         ),
         SizedBox(height: AppSize.h(context, 10)),
         SizedBox(
-          height: AppSize.h(context, 58),
+          height: AppSize.h(context, 62),
           child: isLoading
-              ? const Center(
-                  child: SizedBox(
-                    width: 22,
-                    height: 22,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                )
+              ? const ShimmerSubscriptionStrip(count: 3)
               : items.isEmpty
                   ? Align(
                       alignment: Alignment.centerLeft,
@@ -130,70 +132,81 @@ class _SubscriptionCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final avatarSize = AppSize.r(context, 36);
 
-    return Material(
-      color: ColorConstants.white,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppSize.r(context, 12)),
-        side: const BorderSide(color: ColorConstants.line),
-      ),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppSize.r(context, 12)),
-        child: Padding(
-          padding: AppSize.insets(
-            context,
-            left: 10,
-            top: 10,
-            right: 12,
-            bottom: 10,
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              Container(
-                width: avatarSize,
-                height: avatarSize,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: <Color>[item.avatarStart, item.avatarEnd],
+    return SizedBox(
+      width: AppSize.w(context, 148),
+      child: Material(
+        color: ColorConstants.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppSize.r(context, 12)),
+          side: const BorderSide(color: ColorConstants.line),
+        ),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(AppSize.r(context, 12)),
+          child: Padding(
+            padding: AppSize.insets(
+              context,
+              left: 10,
+              top: 10,
+              right: 10,
+              bottom: 10,
+            ),
+            child: Row(
+              children: <Widget>[
+                Container(
+                  width: avatarSize,
+                  height: avatarSize,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: <Color>[item.avatarStart, item.avatarEnd],
+                    ),
                   ),
-                ),
-                child: Text(
-                  item.initials,
-                  style: TextStyleConstants.caption.copyWith(
-                    color: ColorConstants.white,
-                    fontSize: AppSize.sp(context, 12),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              SizedBox(width: AppSize.w(context, 10)),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: <Widget>[
-                  Text(
-                    item.name,
-                    style: TextStyleConstants.bodyMedium.copyWith(
-                      color: ColorConstants.ink,
+                  child: Text(
+                    item.initials,
+                    style: TextStyleConstants.caption.copyWith(
+                      color: ColorConstants.white,
                       fontSize: AppSize.sp(context, 12),
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  SizedBox(height: AppSize.h(context, 2)),
-                  Text(
-                    item.activeUntil,
-                    style: TextStyleConstants.caption.copyWith(
-                      fontSize: AppSize.sp(context, 10),
-                    ),
+                ),
+                SizedBox(width: AppSize.w(context, 8)),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: <Widget>[
+                      Text(
+                        item.batchName ?? item.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyleConstants.bodyMedium.copyWith(
+                          color: ColorConstants.ink,
+                          fontSize: AppSize.sp(context, 12),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      SizedBox(height: AppSize.h(context, 2)),
+                      Text(
+                        item.analystName?.isNotEmpty == true
+                            ? item.analystName!
+                            : item.activeUntil,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyleConstants.caption.copyWith(
+                          fontSize: AppSize.sp(context, 10),
+                          color: ColorConstants.mute,
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-            ],
+                ),
+              ],
+            ),
           ),
         ),
       ),

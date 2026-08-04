@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show kReleaseMode;
 
 import '../storage/secure_storage.dart';
 import 'device_id.dart';
+import 'api_log.dart';
 import 'request_signer.dart';
 
 const _envBaseUrl = String.fromEnvironment('API_BASE_URL');
@@ -101,10 +102,11 @@ class _SignedAuthInterceptor extends Interceptor {
     options.headers['X-Device-ID'] = deviceId;
     options.headers.addAll(sigHeaders);
 
-    final token = await storage.read(SecureStorage.accessToken);
+  final token = await storage.read(SecureStorage.accessToken);
     if (token != null) {
       options.headers['Authorization'] = 'Bearer $token';
     }
+    options.extra['api_log_started_at'] = DateTime.now();
 
     handler.next(options);
   }
@@ -115,6 +117,11 @@ class _SignedAuthInterceptor extends Interceptor {
     ResponseInterceptorHandler handler,
   ) async {
     final options = response.requestOptions;
+    _recordApiLog(
+      options,
+      status: response.statusCode,
+      responseBody: response.data,
+    );
     final isAuthEndpoint = options.path.startsWith('/auth/');
     final alreadyRetried = options.extra[_retriedFlag] == true;
     if (response.statusCode != 401 || isAuthEndpoint || alreadyRetried) {
@@ -136,6 +143,43 @@ class _SignedAuthInterceptor extends Interceptor {
     } catch (_) {
       return handler.next(response);
     }
+  }
+
+  @override
+  void onError(DioException err, ErrorInterceptorHandler handler) {
+    _recordApiLog(
+      err.requestOptions,
+      status: err.response?.statusCode,
+      responseBody: err.response?.data,
+      error: err.message,
+    );
+    handler.next(err);
+  }
+
+  void _recordApiLog(
+    RequestOptions options, {
+    required int? status,
+    Object? responseBody,
+    String? error,
+  }) {
+    final startedAt = options.extra['api_log_started_at'] as DateTime?;
+    final path = options.uri.query.isEmpty
+        ? options.path
+        : '${options.path}?${options.uri.query}';
+    ApiLogStore.instance.add(
+      ApiLogEntry(
+        time: DateTime.now(),
+        method: options.method.toUpperCase(),
+        path: path,
+        status: status,
+        duration: startedAt == null
+            ? Duration.zero
+            : DateTime.now().difference(startedAt),
+        requestBody: options.data,
+        responseBody: responseBody,
+        error: error,
+      ),
+    );
   }
 
   Future<bool> _refreshOnce() {

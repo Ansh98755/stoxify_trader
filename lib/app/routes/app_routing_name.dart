@@ -19,5 +19,8 @@ class AppRoutingName {
   static const String profile = '/profile';
   static const String settings = '/settings';
   static const String mySubscriptions = '/my-subscriptions';
+  static const String paymentHistory = '/payment-history';
   static const String savedTrades = '/saved-trades';
+  static const String editProfile = '/edit-profile';
+  static const String kyc = '/kyc';
 }

@@ -13,6 +13,7 @@ class LoginBloc extends Bloc<LoginEvent, LoginState> {
     on<LoginSubmitted>(_onSubmitted);
     on<LoginOtpSubmitted>(_onOtpSubmitted);
     on<LoginOtpResendRequested>(_onOtpResendRequested);
+    on<LoginOtpEntryClosed>(_onOtpEntryClosed);
   }
 
   final AuthRepository _authRepository;
@@ -30,7 +31,7 @@ class LoginBloc extends Bloc<LoginEvent, LoginState> {
     LoginSubmitted event,
     Emitter<LoginState> emit,
   ) async {
-    if (!state.isPhoneValid || state.isSubmitting) return;
+    if (!state.isPhoneValid || state.isSubmitting || state.isOtpEntryActive) return;
 
     emit(state.copyWith(isSubmitting: true, clearError: true));
     try {
@@ -38,6 +39,7 @@ class LoginBloc extends Bloc<LoginEvent, LoginState> {
       emit(
         state.copyWith(
           isSubmitting: false,
+          isOtpEntryActive: true,
           otpSentCount: state.otpSentCount + 1,
         ),
       );
@@ -74,6 +76,7 @@ class LoginBloc extends Bloc<LoginEvent, LoginState> {
       emit(
         state.copyWith(
           isSubmitting: false,
+          isOtpEntryActive: false,
           errorMessage: _messageOf(e),
         ),
       );
@@ -103,6 +106,10 @@ class LoginBloc extends Bloc<LoginEvent, LoginState> {
         ),
       );
     }
+  }
+
+  void _onOtpEntryClosed(LoginOtpEntryClosed event, Emitter<LoginState> emit) {
+    emit(state.copyWith(isOtpEntryActive: false));
   }
 
   String _messageOf(Object e) {

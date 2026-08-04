@@ -87,11 +87,20 @@ HomeSubscriptionItem mapHomeSubscriptionToItem(HomeSubscription sub) {
       ? (sub.isActive ? 'Active' : sub.status.name)
       : 'Active until ${DateFormat('dd MMM').format(until)}';
 
+  // batchName — what the user subscribed to
+  final batch = sub.batchName.trim().isNotEmpty ? sub.batchName.trim() : null;
+  // analystName — who runs it (shown as a subtitle under the batch name)
+  final analyst = (sub.analystName?.trim().isNotEmpty == true)
+      ? sub.analystName!.trim()
+      : null;
+
   return HomeSubscriptionItem(
     id: sub.analystId ?? sub.id,
     initials: sub.initials,
     name: sub.displayName,
     activeUntil: untilLabel,
+    batchName: batch,
+    analystName: analyst,
   );
 }
 

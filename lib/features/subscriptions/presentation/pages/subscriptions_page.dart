@@ -1,16 +1,42 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kReleaseMode;
+import 'package:get_it/get_it.dart';
 import 'package:go_router/go_router.dart';
+import 'package:razorpay_flutter/razorpay_flutter.dart';
 
 import '../../../../app/routes/app_routing_name.dart';
 import '../../../../core/constants/color_constants.dart';
 import '../../../../core/constants/text_style_constants.dart';
 import '../../../../core/utils/app_size.dart';
 import '../../../../core/widgets/app_chrome.dart';
+import '../../../../core/widgets/common_app_notification_bar.dart';
 import '../../../../core/widgets/app_screen_background.dart';
 import '../../../../core/widgets/common_button_widget.dart';
+import '../../../../core/widgets/app_loader.dart';
+import '../../../discover/data/models/discover_batch_model.dart';
+import '../../../discover/domain/repositories/discover_repository.dart';
+import '../../../auth/domain/entities/auth_user.dart';
+import '../../../auth/domain/repositories/auth_repository.dart';
+import '../../../home/domain/repositories/home_repository.dart';
+
+class SubscriptionPageArgs {
+  const SubscriptionPageArgs({
+    required this.planId,
+    required this.analystId,
+    this.batchId,
+  });
+
+  final String planId;
+  final String analystId;
+  final String? batchId;
+}
 
 class SubscriptionsPage extends StatefulWidget {
-  const SubscriptionsPage({super.key});
+  const SubscriptionsPage({super.key, this.planId, this.analystId, this.batchId});
+
+  final String? planId;
+  final String? analystId;
+  final String? batchId;
 
   @override
   State<SubscriptionsPage> createState() => _SubscriptionsPageState();
@@ -18,11 +44,215 @@ class SubscriptionsPage extends StatefulWidget {
 
 class _SubscriptionsPageState extends State<SubscriptionsPage> {
   final TextEditingController _couponController = TextEditingController();
+  final FocusNode _couponFocusNode = FocusNode();
   String? _appliedCoupon;
+  Future<List<AvailableCoupon>>? _coupons;
+  bool _verifyingCoupon = false;
+  bool _creatingPayment = false;
+  late final Razorpay _razorpay;
+  SubscriptionCheckout? _pendingCheckout;
+
+  @override
+  void initState() {
+    super.initState();
+    _razorpay = Razorpay()
+      ..on(Razorpay.EVENT_PAYMENT_SUCCESS, _onPaymentSuccess)
+      ..on(Razorpay.EVENT_PAYMENT_ERROR, _onPaymentError)
+      ..on(Razorpay.EVENT_EXTERNAL_WALLET, _onExternalWallet);
+    _couponFocusNode.addListener(_onCouponFocusChanged);
+    final planId = widget.planId?.trim();
+    final analystId = widget.analystId?.trim();
+    if (planId?.isNotEmpty == true && analystId?.isNotEmpty == true) {
+      _coupons = GetIt.instance<DiscoverRepository>().fetchAvailableCoupons(
+        planId: planId!,
+        analystId: analystId!,
+      );
+    }
+  }
+
+  void _onCouponFocusChanged() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _verifyCoupon() async {
+    final code = _couponController.text.trim().toUpperCase();
+    final planId = widget.planId?.trim();
+    _couponFocusNode.unfocus();
+
+    if (code.isEmpty) {
+      await CommonAppNotificationBar.warning(
+        context: context,
+        title: 'Enter a coupon code',
+        message: 'Enter a code before applying it.',
+      );
+      return;
+    }
+    if (planId == null || planId.isEmpty) {
+      await CommonAppNotificationBar.error(
+        context: context,
+        title: 'Coupon unavailable',
+        message: 'The selected plan is unavailable. Please try again.',
+      );
+      return;
+    }
+
+    setState(() => _verifyingCoupon = true);
+    try {
+      final verification = await GetIt.instance<DiscoverRepository>()
+          .verifyCoupon(code: code, planId: planId);
+      if (!mounted) return;
+      if (!verification.valid) {
+        setState(() => _appliedCoupon = null);
+        await CommonAppNotificationBar.error(
+          context: context,
+          title: 'Invalid coupon',
+          message: 'This coupon cannot be applied to the selected plan.',
+        );
+        return;
+      }
+
+      setState(() {
+        _couponController.text = verification.code.isEmpty
+            ? code
+            : verification.code;
+        _appliedCoupon = _couponController.text;
+      });
+      await CommonAppNotificationBar.success(
+        context: context,
+        title: 'Coupon applied',
+        message: 'You saved ₹${verification.discountAmount.toStringAsFixed(0)}.',
+        duration: const Duration(seconds: 2),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _appliedCoupon = null);
+      await CommonAppNotificationBar.error(
+        context: context,
+        title: 'Coupon could not be verified',
+        message: 'Check the code and try again.',
+      );
+    } finally {
+      if (mounted) setState(() => _verifyingCoupon = false);
+    }
+  }
+
+  Future<void> _startSubscription() async {
+    if (_creatingPayment) return;
+    final planId = widget.planId?.trim();
+    if (planId == null || planId.isEmpty) {
+      await CommonAppNotificationBar.error(
+        context: context,
+        title: 'Subscription unavailable',
+        message: 'The selected plan is unavailable. Please try again.',
+      );
+      return;
+    }
+
+    setState(() => _creatingPayment = true);
+    try {
+      AuthUser? user;
+      try {
+        user = await GetIt.instance<AuthRepository>().getMe();
+      } catch (_) {
+        // Payment can still proceed when the profile refresh is unavailable.
+      }
+      final checkout = await GetIt.instance<DiscoverRepository>()
+          .createSubscription(
+            planId: planId,
+            batchId: widget.batchId?.trim(),
+            couponCode: _appliedCoupon,
+          );
+      if (!mounted) return;
+      if (checkout.subscriptionId.isEmpty ||
+          checkout.razorpayOrderId.isEmpty ||
+          checkout.amount <= 0 ||
+          (kReleaseMode && checkout.keyId.isEmpty)) {
+        throw Exception('Invalid payment order');
+      }
+      _pendingCheckout = checkout;
+      setState(() => _creatingPayment = false);
+      _razorpay.open(<String, dynamic>{
+        'key': checkout.keyId.isEmpty ? 'rzp_test_T4nri4iE8zYsih' : checkout.keyId,
+        'amount': checkout.amount,
+        'currency': checkout.currency,
+        'name': 'Stoxify',
+        'description': 'Plan subscription',
+        'order_id': checkout.razorpayOrderId,
+        'prefill': <String, String>{
+          if (user != null && _razorpayContact(user.phone).isNotEmpty)
+            'contact': _razorpayContact(user.phone),
+          if (user?.email?.trim().isNotEmpty == true) 'email': user!.email!.trim(),
+        },
+      });
+    } catch (_) {
+      if (!mounted) return;
+      await CommonAppNotificationBar.error(
+        context: context,
+        title: 'Unable to start payment',
+        message: 'Please try again in a moment.',
+      );
+    } finally {
+      if (mounted && _creatingPayment) {
+        setState(() => _creatingPayment = false);
+      }
+    }
+  }
+
+  String _razorpayContact(String phone) {
+    final digits = phone.replaceAll(RegExp(r'\D'), '');
+    return digits.length == 12 && digits.startsWith('91')
+        ? digits.substring(2)
+        : digits;
+  }
+
+  Future<void> _onPaymentSuccess(PaymentSuccessResponse response) async {
+    final checkout = _pendingCheckout;
+    if (checkout == null || !mounted || _creatingPayment) return;
+    setState(() => _creatingPayment = true);
+    try {
+      await GetIt.instance<DiscoverRepository>().verifySubscriptionPayment(
+        subscriptionId: checkout.subscriptionId,
+        razorpayOrderId: response.orderId ?? checkout.razorpayOrderId,
+        razorpayPaymentId: response.paymentId ?? '',
+        razorpaySignature: response.signature ?? '',
+      );
+      if (!mounted) return;
+      GetIt.instance<HomeRepository>().invalidateSubscriptions();
+      GetIt.instance<DiscoverRepository>().invalidatePlan(
+        widget.planId!,
+        analystId: widget.analystId,
+      );
+      context.go(AppRoutingName.paymentSuccess);
+    } catch (_) {
+      if (!mounted) return;
+      await CommonAppNotificationBar.error(
+        context: context,
+        title: 'Payment verification failed',
+        message: 'Your payment is pending. Please contact support if charged.',
+      );
+    } finally {
+      if (mounted) setState(() => _creatingPayment = false);
+    }
+  }
+
+  Future<void> _onPaymentError(PaymentFailureResponse response) async {
+    if (!mounted) return;
+    _pendingCheckout = null;
+    await CommonAppNotificationBar.error(
+      context: context,
+      title: 'Payment failed',
+      message: response.message ?? 'Your payment could not be completed.',
+    );
+  }
+
+  void _onExternalWallet(ExternalWalletResponse response) {}
 
   @override
   void dispose() {
+    _razorpay.clear();
+    _couponFocusNode.removeListener(_onCouponFocusChanged);
     _couponController.dispose();
+    _couponFocusNode.dispose();
     super.dispose();
   }
 
@@ -75,56 +305,122 @@ class _SubscriptionsPageState extends State<SubscriptionsPage> {
                           SizedBox(height: AppSize.h(context, 14)),
                           const AppSectionLabel('Coupon'),
                           SizedBox(height: AppSize.h(context, 8)),
-                          Row(
-                            children: <Widget>[
-                              Expanded(
-                                child: Material(
-                                  color: ColorConstants.white,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(
-                                      AppSize.r(context, 12),
-                                    ),
-                                    side: const BorderSide(
-                                      color: ColorConstants.line,
-                                    ),
+                          AnimatedContainer(
+                            duration: const Duration(milliseconds: 200),
+                            height: 48,
+                            decoration: BoxDecoration(
+                              color: ColorConstants.white,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: _couponFocusNode.hasFocus
+                                    ? ColorConstants.brandBlue
+                                    : ColorConstants.line,
+                                width: _couponFocusNode.hasFocus ? 1.5 : 1,
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: ColorConstants.navy.withValues(
+                                    alpha: 0.08,
                                   ),
-                                  child: Padding(
-                                    padding: AppSize.symmetric(
-                                      context,
-                                      horizontal: 12,
-                                    ),
-                                    child: TextField(
+                                  blurRadius: 12,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                              ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: <Widget>[
+                                  Expanded(
+                                    child: TextFormField(
                                       controller: _couponController,
+                                      focusNode: _couponFocusNode,
+                                      textCapitalization:
+                                          TextCapitalization.characters,
+                                      textAlignVertical:
+                                          TextAlignVertical.center,
+                                      cursorColor: ColorConstants.brandBlue,
+                                      cursorWidth: 2,
+                                      cursorHeight: 18,
+                                      style:
+                                          TextStyleConstants.bodyMedium.copyWith(
+                                        color: ColorConstants.ink,
+                                        height: 1,
+                                      ),
                                       decoration: InputDecoration(
-                                        border: InputBorder.none,
+                                        isCollapsed: true,
                                         hintText: 'Enter code',
                                         hintStyle:
-                                            TextStyleConstants.body.copyWith(
-                                          color: ColorConstants.soft,
-                                          fontSize: AppSize.sp(context, 13),
+                                            TextStyleConstants.bodyMedium
+                                                .copyWith(
+                                          color: ColorConstants.ink.withValues(
+                                            alpha: 0.32,
+                                          ),
+                                          height: 1,
                                         ),
+                                        border: InputBorder.none,
+                                        enabledBorder: InputBorder.none,
+                                        focusedBorder: InputBorder.none,
+                                        disabledBorder: InputBorder.none,
+                                        errorBorder: InputBorder.none,
+                                        focusedErrorBorder: InputBorder.none,
+                                        contentPadding: EdgeInsets.zero,
                                       ),
+                                      onTapOutside: (_) =>
+                                          _couponFocusNode.unfocus(),
                                     ),
                                   ),
-                                ),
+                                  Container(
+                                    width: 1,
+                                    height: 18,
+                                    color: ColorConstants.line,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  TextButton(
+                                    onPressed: _verifyingCoupon
+                                        ? null
+                                        : _verifyCoupon,
+                                    style: TextButton.styleFrom(
+                                      foregroundColor: ColorConstants.brandBlue,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 4,
+                                      ),
+                                      minimumSize: const Size(0, 48),
+                                      alignment: Alignment.center,
+                                      tapTargetSize:
+                                          MaterialTapTargetSize.shrinkWrap,
+                                      textStyle:
+                                          TextStyleConstants.bodyMedium.copyWith(
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: AppSize.sp(context, 14),
+                                        height: 1,
+                                      ),
+                                    ),
+                                    child: _verifyingCoupon
+                                        ? const SizedBox(
+                                            width: 16,
+                                            height: 16,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
+                                          )
+                                        : Text(
+                                            'Apply',
+                                            style: TextStyleConstants.bodyMedium
+                                                .copyWith(
+                                              color: ColorConstants.brandBlue,
+                                              fontWeight: FontWeight.w700,
+                                              fontSize: AppSize.sp(context, 14),
+                                              height: 1,
+                                            ),
+                                          ),
+                                  ),
+                                ],
                               ),
-                              SizedBox(width: AppSize.w(context, 8)),
-                              CommonButtonWidget(
-                                label: 'Apply',
-                                width: null,
-                                height: 44,
-                                borderRadius: 10,
-                                horizontalPadding: 16,
-                                onPressed: () {
-                                  setState(() {
-                                    _appliedCoupon =
-                                        _couponController.text.trim().isEmpty
-                                            ? null
-                                            : _couponController.text.trim();
-                                  });
-                                },
-                              ),
-                            ],
+                            ),
                           ),
                           if (_appliedCoupon != null) ...<Widget>[
                             SizedBox(height: AppSize.h(context, 8)),
@@ -136,6 +432,7 @@ class _SubscriptionsPageState extends State<SubscriptionsPage> {
                               ),
                             ),
                           ],
+                          if (_coupons == null) ...<Widget>[
                           SizedBox(height: AppSize.h(context, 12)),
                           _CouponTile(
                             code: 'WELCOME50',
@@ -143,7 +440,7 @@ class _SubscriptionsPageState extends State<SubscriptionsPage> {
                             subtitle: 'New subscribers',
                             onTap: () {
                               _couponController.text = 'WELCOME50';
-                              setState(() => _appliedCoupon = 'WELCOME50');
+                              setState(() => _appliedCoupon = null);
                             },
                           ),
                           SizedBox(height: AppSize.h(context, 8)),
@@ -153,9 +450,11 @@ class _SubscriptionsPageState extends State<SubscriptionsPage> {
                             subtitle: 'F&O batches',
                             onTap: () {
                               _couponController.text = 'FNO10';
-                              setState(() => _appliedCoupon = 'FNO10');
+                              setState(() => _appliedCoupon = null);
                             },
                           ),
+                          ],
+                          _buildAvailableCoupons(context),
                         ],
                       ),
                     ),
@@ -186,8 +485,8 @@ class _SubscriptionsPageState extends State<SubscriptionsPage> {
                         SizedBox(height: AppSize.h(context, 10)),
                         CommonButtonWidget(
                           label: 'Pay ₹99',
-                          onPressed: () =>
-                              context.go(AppRoutingName.paymentSuccess),
+                          onPressed:
+                              _creatingPayment ? null : _startSubscription,
                         ),
                         SizedBox(height: AppSize.h(context, 8)),
                         Text(
@@ -204,8 +503,46 @@ class _SubscriptionsPageState extends State<SubscriptionsPage> {
               ),
             ),
           ),
+          if (_creatingPayment)
+            const Positioned.fill(child: AppLoaderOverlay()),
         ],
       ),
+    );
+  }
+  Widget _buildAvailableCoupons(BuildContext context) {
+    if (_coupons == null) return const SizedBox.shrink();
+    return FutureBuilder<List<AvailableCoupon>>(
+      future: _coupons,
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) return const SizedBox.shrink();
+        final coupons = snapshot.data!
+            .where((coupon) => coupon.applicable && coupon.code.isNotEmpty)
+            .toList();
+        if (coupons.isEmpty) return const SizedBox.shrink();
+        return Padding(
+          padding: EdgeInsets.only(top: AppSize.h(context, 12)),
+          child: Column(
+            children: coupons
+                .map(
+                  (coupon) => Padding(
+                    padding: EdgeInsets.only(bottom: AppSize.h(context, 8)),
+                    child: _CouponTile(
+                      code: coupon.code,
+                      discount: coupon.discountLabel,
+                      subtitle: coupon.validTo == null
+                          ? 'Available now'
+                          : 'Limited time offer',
+                      onTap: () {
+                        _couponController.text = coupon.code;
+                        setState(() => _appliedCoupon = null);
+                      },
+                    ),
+                  ),
+                )
+                .toList(),
+          ),
+        );
+      },
     );
   }
 }

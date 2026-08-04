@@ -8,7 +8,7 @@ class ColorConstants {
   static const Color navy = Color(0xFF081F4D);
   static const Color navyDark = Color(0xFF0B1220);
   static const Color brandBlue = Color(0xFF1A5CC8);
-  static const Color brandBlueLight = Color(0xFF4F8CFF);
+  static const Color brandBlueLight = Color(0xFF1A5CC8);
 
   // ——— Surfaces ———
   static const Color pageBackground = Color(0xFFF9FAFB);

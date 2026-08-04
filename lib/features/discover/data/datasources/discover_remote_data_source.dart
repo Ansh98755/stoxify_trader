@@ -48,6 +48,83 @@ class DiscoverRemoteDataSource {
     return DiscoverBatchModel.fromJson(raw);
   }
 
+  Future<List<AvailableCoupon>> fetchAvailableCoupons({
+    required String planId,
+    required String analystId,
+  }) async {
+    final res = await _dio.get(
+      '/plans/coupons/available',
+      queryParameters: <String, String>{
+        'plan_id': planId,
+        'analyst_id': analystId,
+      },
+    );
+    if (res.statusCode != 200) {
+      throw Exception('Failed to fetch available coupons');
+    }
+    final data = (res.data as Map).cast<String, dynamic>();
+    return ((data['coupons'] as List?) ?? const <dynamic>[])
+        .whereType<Map>()
+        .map((coupon) => AvailableCoupon.fromJson(coupon.cast<String, dynamic>()))
+        .toList();
+  }
+
+  Future<CouponVerification> verifyCoupon({
+    required String code,
+    required String planId,
+  }) async {
+    final res = await _dio.post(
+      '/plans/coupons/verify',
+      data: <String, String>{'code': code, 'plan_id': planId},
+    );
+    if (res.statusCode != 200) {
+      throw Exception('Unable to verify this coupon');
+    }
+    return CouponVerification.fromJson(
+      (res.data as Map).cast<String, dynamic>(),
+    );
+  }
+
+  Future<SubscriptionCheckout> createSubscription({
+    required String planId,
+    String? batchId,
+    String? couponCode,
+  }) async {
+    final res = await _dio.post(
+      '/subscriptions/',
+      data: _clean(<String, dynamic>{
+        'plan_id': planId,
+        'batch_id': batchId,
+        'coupon_code': couponCode,
+      }),
+    );
+    if (res.statusCode != 200 && res.statusCode != 201) {
+      throw Exception('Unable to create subscription');
+    }
+    return SubscriptionCheckout.fromJson(
+      (res.data as Map).cast<String, dynamic>(),
+    );
+  }
+
+  Future<void> verifySubscriptionPayment({
+    required String subscriptionId,
+    required String razorpayOrderId,
+    required String razorpayPaymentId,
+    required String razorpaySignature,
+  }) async {
+    final res = await _dio.post(
+      '/subscriptions/$subscriptionId/verify-payment',
+      data: <String, String>{
+        'razorpay_order_id': razorpayOrderId,
+        'razorpay_payment_id': razorpayPaymentId,
+        'razorpay_signature': razorpaySignature,
+      },
+    );
+    if (res.statusCode != 200) {
+      throw Exception('Payment verification failed');
+    }
+  }
+
   Future<DiscoverAnalystFacets> fetchAnalystFacets() async {
     final res = await _dio.get('/users/analysts/facets');
     if (res.statusCode != 200) {
@@ -109,12 +186,12 @@ class DiscoverRemoteDataSource {
         'page': page,
         'limit': pageSize,
         'is_active': 'true',
-        'require_active_tier': 'true',
-        'sort': _mapBatchSort(sort),
-        'search': search,
-        'segments': segment,
-        'risk_levels': riskLevel,
-        'horizons': horizon,
+        // 'require_active_tier': 'true',
+        // 'sort': _mapBatchSort(sort),
+        // 'search': search,
+        // 'segments': segment,
+        // 'risk_levels': riskLevel,
+        // 'horizons': horizon,
       }),
     );
     if (res.statusCode != 200) throw Exception('Failed to fetch batches');

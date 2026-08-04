@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../features/auth/domain/entities/auth_user.dart';
 import '../../features/advisor/presentation/pages/advisor_profile_page.dart';
 import '../../features/advisor/presentation/pages/batch_details_page.dart';
 import '../../features/auth/presentation/pages/interest_page.dart';
@@ -13,17 +14,22 @@ import '../../features/home/presentation/pages/home_page.dart';
 import '../../features/notifications/presentation/pages/notifications_page.dart';
 import '../../features/onboarding/presentation/pages/onboarding_page.dart';
 import '../../features/profile/presentation/pages/profile_page.dart';
+import '../../features/profile/presentation/pages/edit_profile_page.dart';
 import '../../features/search/presentation/pages/search_page.dart';
 import '../../features/saved_trades/presentation/pages/saved_trades_page.dart';
 import '../../features/settings/presentation/pages/settings_page.dart';
 import '../../features/splash/presentation/pages/splash_page.dart';
 import '../../features/subscriptions/presentation/pages/my_subscriptions_page.dart';
 import '../../features/subscriptions/presentation/pages/payment_success_page.dart';
+import '../../features/subscriptions/presentation/pages/payment_history_page.dart';
 import '../../features/subscriptions/presentation/pages/subscriptions_page.dart';
 import '../../features/trades/presentation/pages/trade_details_page.dart';
 import '../../features/trades/presentation/pages/trades_page.dart';
 import 'app_routing_name.dart';
-
+class AuthUserExtra {
+  const AuthUserExtra(this.user);
+  final AuthUser user;
+}
 class AppRouting {
   AppRouting._();
 
@@ -84,6 +90,15 @@ class AppRouting {
         builder: (_, _) => const ProfilePage(),
       ),
       GoRoute(
+        path: AppRoutingName.editProfile,
+        name: AppRoutingName.editProfile,
+        builder: (_, state) {
+          final user = state.extra;
+          if (user is! AuthUserExtra) return const ProfilePage();
+          return EditProfilePage(user: user.user);
+        },
+      ),
+      GoRoute(
         path: AppRoutingName.settings,
         name: AppRoutingName.settings,
         builder: (_, _) => const SettingsPage(),
@@ -126,7 +141,14 @@ class AppRouting {
       GoRoute(
         path: AppRoutingName.subscriptions,
         name: AppRoutingName.subscriptions,
-        builder: (_, _) => const SubscriptionsPage(),
+        builder: (_, state) {
+          final args = state.extra;
+          return SubscriptionsPage(
+            planId: args is SubscriptionPageArgs ? args.planId : null,
+            analystId: args is SubscriptionPageArgs ? args.analystId : null,
+            batchId: args is SubscriptionPageArgs ? args.batchId : null,
+          );
+        },
       ),
       GoRoute(
         path: AppRoutingName.paymentSuccess,
@@ -137,6 +159,11 @@ class AppRouting {
         path: AppRoutingName.mySubscriptions,
         name: AppRoutingName.mySubscriptions,
         builder: (_, _) => const MySubscriptionsPage(),
+      ),
+      GoRoute(
+        path: AppRoutingName.paymentHistory,
+        name: AppRoutingName.paymentHistory,
+        builder: (_, _) => const PaymentHistoryPage(),
       ),
       GoRoute(
         path: AppRoutingName.savedTrades,

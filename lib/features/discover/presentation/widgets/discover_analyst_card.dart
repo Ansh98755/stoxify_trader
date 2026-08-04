@@ -128,14 +128,14 @@ class DiscoverAnalystCard extends StatelessWidget {
                                   ],
                                 ),
                                 if (data.subtitle.isNotEmpty) ...<Widget>[
-                                  SizedBox(height: AppSize.h(context, 5)),
+                                  // SizedBox(height: AppSize.h(context, 5)),
                                   Text(
                                     data.subtitle,
                                     style:
                                         TextStyleConstants.bodyMedium.copyWith(
                                       fontSize: AppSize.sp(context, 12.5),
                                       color: ColorConstants.mute,
-                                      height: 1.35,
+                                      height: 1,
                                     ),
                                   ),
                                 ],

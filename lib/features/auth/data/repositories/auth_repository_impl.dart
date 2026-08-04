@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart'
+    show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 
 import '../../../../core/storage/secure_storage.dart';
@@ -21,28 +22,21 @@ class AuthRepositoryImpl implements AuthRepository {
 
   String get _deviceType {
     if (kIsWeb) return 'WEB';
-    switch (defaultTargetPlatform) {
-      case TargetPlatform.iOS:
-        return 'IOS';
-      case TargetPlatform.macOS:
-        return 'MACOS';
-      default:
-        return 'ANDROID';
-    }
+    if (defaultTargetPlatform == TargetPlatform.iOS) return 'IOS';
+    return 'ANDROID';
   }
 
   String get _deviceName {
     if (kIsWeb) return 'StoXify Web';
-    switch (defaultTargetPlatform) {
-      case TargetPlatform.iOS:
-        return 'StoXify iOS';
-      case TargetPlatform.macOS:
-        return 'StoXify macOS';
-      case TargetPlatform.windows:
-        return 'StoXify Windows';
-      default:
-        return 'StoXify Android';
-    }
+    final os = switch (defaultTargetPlatform) {
+      TargetPlatform.iOS => 'iOS',
+      TargetPlatform.android => 'Android',
+      TargetPlatform.macOS => 'macOS',
+      TargetPlatform.windows => 'Windows',
+      TargetPlatform.linux => 'Linux',
+      _ => 'Unknown',
+    };
+    return 'StoXify $os';
   }
 
   @override
@@ -52,6 +46,30 @@ class AuthRepositoryImpl implements AuthRepository {
       data: {'identifier': phoneE164},
     );
     if (res.statusCode != 200) throw _errorFrom(res);
+  }
+
+  @override
+  Future<String> requestAccountDeletionOtp() async {
+    final res = await _dio.post('/users/me/delete/request-otp');
+    if (res.statusCode != 200) throw _errorFrom(res);
+    final data = (res.data as Map).cast<String, dynamic>();
+    return data['phone_masked'] as String? ?? 'your registered mobile number';
+  }
+
+  @override
+  Future<DateTime?> deleteAccount({
+    required String otp,
+    required String reason,
+  }) async {
+    final res = await _dio.post(
+      '/users/me/delete',
+      data: <String, String>{'otp': otp, 'reason': reason},
+    );
+    if (res.statusCode != 200) throw _errorFrom(res);
+    _cachedUser = null;
+    final data = (res.data as Map).cast<String, dynamic>();
+    final scheduledAt = data['deletion_scheduled_at'] as String?;
+    return scheduledAt == null ? null : DateTime.tryParse(scheduledAt)?.toLocal();
   }
 
   @override
@@ -79,12 +97,15 @@ class AuthRepositoryImpl implements AuthRepository {
       SecureStorage.refreshToken,
       data['refresh_token'] as String,
     );
-    if(res.statusCode==200)
-      {
-        debugPrint("Hurray!!! verify-otp working fine ");
-      }
+    if (res.statusCode == 200) {
+      debugPrint("Hurray!!! verify-otp working fine ");
+    }
 
-    return AuthUser.fromVerifyResponse(data);
+    final user = AuthUser.fromVerifyResponse(data);
+    if (user.isNewUser) {
+      await _storage.write(SecureStorage.isNewUser, 'true');
+    }
+    return user;
   }
 
   @override
@@ -119,6 +140,96 @@ class AuthRepositoryImpl implements AuthRepository {
   }
 
   @override
+  Future<void> refreshToken() async {
+    final token = await _storage.read(SecureStorage.refreshToken);
+    if (token == null || token.isEmpty) {
+      throw AuthException('MISSING_REFRESH_TOKEN', 'Session refresh is unavailable');
+    }
+
+    final res = await _dio.post<dynamic>(
+      '/auth/refresh',
+      data: <String, dynamic>{'refresh_token': token},
+    );
+    if (res.statusCode != 200) throw _errorFrom(res);
+
+    final data = (res.data as Map).cast<String, dynamic>();
+    final access = data['access_token'] as String?;
+    final refresh = data['refresh_token'] as String?;
+
+    if (access == null || access.isEmpty) {
+      throw AuthException('INVALID_REFRESH_RESPONSE', 'Session refresh failed');
+    }
+    await _storage.write(SecureStorage.accessToken, access);
+    if (refresh != null && refresh.isNotEmpty) {
+      await _storage.write(SecureStorage.refreshToken, refresh);
+    }
+  }
+
+  @override
+  Future<String> submitKyc({required String aadhaarNumber}) async {
+    final res = await _dio.post<dynamic>(
+      '/users/kyc/submit',
+      data: <String, dynamic>{'aadhaar_number': aadhaarNumber},
+    );
+    if (res.statusCode != 200) throw _errorFrom(res);
+    final data = (res.data as Map).cast<String, dynamic>();
+    final state = data['state'] as String? ?? 'ACTIVE';
+
+    // KYC changes the permissions embedded in the session. Refreshing is a
+    // required part of a successful KYC flow in every build mode, not a
+    // best-effort background task.
+    await refreshToken();
+
+    // Replace the pre-KYC cached profile only after the new token is stored.
+    _cachedUser = null;
+    await getMe();
+    return state;
+  }
+
+  @override
+  Future<AuthUser> updateProfile({
+    String? name,
+    String? email,
+    String? profilePicUrl,
+  }) async {
+    final payload = <String, dynamic>{
+      if (name != null && name.trim().isNotEmpty) 'name': name.trim(),
+      if (email != null && email.trim().isNotEmpty) 'email': email.trim(),
+      if (profilePicUrl != null && profilePicUrl.trim().isNotEmpty)
+        'profile_pic_url': profilePicUrl.trim(),
+    };
+    final res = await _dio.patch('/users/me', data: payload);
+    if (res.statusCode != 200) throw _errorFrom(res);
+    // Bust the cache so getMe() fetches fresh complete data on next call.
+    _cachedUser = null;
+    final updated = AuthUser.fromProfile(res.data as Map<String, dynamic>);
+    return updated;
+  }
+
+  @override
+  Future<String> uploadAvatar({
+    required String imageBase64,
+    required String contentType,
+  }) async {
+    final res = await _dio.post<dynamic>(
+      '/users/me/avatar',
+      data: <String, dynamic>{
+        'image_base64': imageBase64,
+        'content_type': contentType,
+      },
+    );
+    if (res.statusCode != 200) throw _errorFrom(res);
+    final data = res.data as Map<String, dynamic>;
+    final url = data['profile_pic_url'] ?? data['url'] ?? data['avatar_url'];
+    if (url is! String || url.isEmpty) {
+      throw AuthException('INVALID_RESPONSE', 'Avatar URL missing in response');
+    }
+    // Bust cache so next getMe() returns updated profilePicUrl.
+    _cachedUser = _cachedUser?.copyWith(profilePicUrl: url);
+    return url;
+  }
+
+  @override
   Future<String> requestWsChannel() async {
     final res = await _dio.post('/auth/request-ws-channel');
     if (res.statusCode != 200) throw _errorFrom(res);
@@ -139,8 +250,7 @@ class AuthRepositoryImpl implements AuthRepository {
     } finally {
       _cachedUser = null;
       _getMeRequest = null;
-      await _storage.delete(SecureStorage.accessToken);
-      await _storage.delete(SecureStorage.refreshToken);
+      await _storage.clearSession();
     }
   }
 

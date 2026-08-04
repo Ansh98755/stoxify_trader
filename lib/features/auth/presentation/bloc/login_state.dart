@@ -4,6 +4,7 @@ class LoginState extends Equatable {
   const LoginState({
     this.phoneNumber = '',
     this.isSubmitting = false,
+    this.isOtpEntryActive = false,
     this.otpSentCount = 0,
     this.verifySuccessCount = 0,
     this.isNewUser = false,
@@ -12,6 +13,8 @@ class LoginState extends Equatable {
 
   final String phoneNumber;
   final bool isSubmitting;
+  /// Keeps the phone screen non-interactive while its OTP dialog is open.
+  final bool isOtpEntryActive;
   final int otpSentCount;
   final int verifySuccessCount;
   final bool isNewUser;
@@ -24,6 +27,7 @@ class LoginState extends Equatable {
   LoginState copyWith({
     String? phoneNumber,
     bool? isSubmitting,
+    bool? isOtpEntryActive,
     int? otpSentCount,
     int? verifySuccessCount,
     bool? isNewUser,
@@ -33,6 +37,7 @@ class LoginState extends Equatable {
     return LoginState(
       phoneNumber: phoneNumber ?? this.phoneNumber,
       isSubmitting: isSubmitting ?? this.isSubmitting,
+      isOtpEntryActive: isOtpEntryActive ?? this.isOtpEntryActive,
       otpSentCount: otpSentCount ?? this.otpSentCount,
       verifySuccessCount: verifySuccessCount ?? this.verifySuccessCount,
       isNewUser: isNewUser ?? this.isNewUser,
@@ -44,6 +49,7 @@ class LoginState extends Equatable {
   List<Object?> get props => [
         phoneNumber,
         isSubmitting,
+        isOtpEntryActive,
         otpSentCount,
         verifySuccessCount,
         isNewUser,

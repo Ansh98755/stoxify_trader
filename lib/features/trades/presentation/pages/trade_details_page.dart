@@ -369,6 +369,10 @@ class _TradeDetailsPageState extends State<TradeDetailsPage> {
                               TradeSignalTimeline(
                                 timestamp: _formatDate(
                                     t?.entryTimestamp ?? t?.nseTimestamp),
+                                entry: entryStr,
+                                stopLoss: slStr,
+                                target: _money(t?.finalTarget ?? 0),
+                                currentPrice: _money(currentPrice),
                               ),
                               const TaperedHorizontalDivider(
                                 verticalPadding: 12,

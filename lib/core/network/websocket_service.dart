@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:flutter/widgets.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -11,6 +11,9 @@ import '../storage/secure_storage.dart';
 import 'api_client.dart';
 
 /// Keeps a single live-updates socket open for the app's lifetime.
+///
+/// Uses [WebSocketChannel] from the `web_socket_channel` package so it works
+/// on both native (dart:io) and web (dart:html / dart:js_interop) platforms.
 class WebSocketService with WidgetsBindingObserver {
   WebSocketService({
     required this.authRepository,
@@ -23,7 +26,7 @@ class WebSocketService with WidgetsBindingObserver {
   final SecureStorage storage;
 
   WebSocketChannel? _channel;
-  StreamSubscription<dynamic>? _subscription;
+  StreamSubscription<dynamic>? _channelSub;
   Timer? _pingTimer;
   Timer? _reconnectTimer;
   bool _isDisposed = false;
@@ -41,7 +44,10 @@ class WebSocketService with WidgetsBindingObserver {
   Stream<Map<String, dynamic>> get notificationUpdates =>
       _notificationController.stream;
 
-  bool get isConnected => _channel != null;
+  /// True when the channel exists and the sink has not been closed.
+  /// [WebSocketChannel] does not expose a readyState, so we track state
+  /// ourselves via [_connecting] and [_cleanup].
+  bool get isConnected => _channel != null && !_connecting;
 
   Future<void> connect() async {
     if (_connecting || isConnected || _isDisposed) return;
@@ -56,14 +62,26 @@ class WebSocketService with WidgetsBindingObserver {
 
       final channelId = await authRepository.requestWsChannel();
 
-      final base = apiBaseUrl
-          .replaceAll('https://', 'wss://')
-          .replaceAll('http://', 'ws://');
-      final wsUrl = '$base/ws/?channel_id=$channelId';
+      // On web the browser enforces same-origin WSS rules; point directly at
+      // the backend so the connection does not go through the Vercel proxy
+      // (Vercel's Edge Network does not forward WebSocket upgrades for free
+      // plans and the /api rewrite is HTTP-only).
+      final wsBase = kIsWeb
+          ? 'wss://stoxify-gateway.thankfulriver-811030ea.centralindia.azurecontainerapps.io'
+          : apiBaseUrl
+              .replaceAll('https://', 'wss://')
+              .replaceAll('http://', 'ws://');
+
+      final wsUrl = '$wsBase/ws/?channel_id=$channelId';
 
       debugPrint('[WS] Connecting to $wsUrl');
 
-      _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
+      final uri = Uri.parse(wsUrl);
+      _channel = WebSocketChannel.connect(uri);
+
+      // On web, WebSocketChannel.connect() returns synchronously but the
+      // handshake is async. `ready` resolves once the connection is open or
+      // throws if it fails.
       await _channel!.ready.timeout(const Duration(seconds: 10));
 
       _reconnectAttempts = 0;
@@ -72,7 +90,7 @@ class WebSocketService with WidgetsBindingObserver {
       debugPrint('[WS] *********** Connected successfully *************');
       _startPing();
 
-      _subscription = _channel!.stream.listen(
+      _channelSub = _channel!.stream.listen(
         _onMessage,
         onDone: _onClose,
         onError: _onError,
@@ -164,14 +182,15 @@ class WebSocketService with WidgetsBindingObserver {
   void _cleanup() {
     _pingTimer?.cancel();
     _pingTimer = null;
-    _subscription?.cancel();
-    _subscription = null;
+    _channelSub?.cancel();
+    _channelSub = null;
     _channel = null;
   }
 
   void disconnect() {
+    final channel = _channel;
     _cleanup();
-    _channel?.sink.close();
+    channel?.sink.close();
   }
 
   void dispose() {

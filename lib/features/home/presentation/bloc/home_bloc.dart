@@ -4,7 +4,9 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/services/live_prices_service.dart';
 import '../../../../core/network/websocket_service.dart';
+import '../../../../core/storage/secure_storage.dart';
 import '../../../auth/domain/repositories/auth_repository.dart';
+import '../../../notifications/domain/repositories/notifications_repository.dart';
 import '../../domain/entities/home_subscription.dart';
 import '../../../../../shared/models/trading_card_data.dart';
 import '../../domain/entities/home_trade.dart';
@@ -20,10 +22,14 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     required AuthRepository authRepository,
     required LivePricesService livePrices,
     required WebSocketService webSocket,
+    required NotificationsRepository notificationsRepository,
+    required SecureStorage storage,
   })  : _repository = repository,
         _authRepository = authRepository,
         _livePrices = livePrices,
         _webSocket = webSocket,
+        _notificationsRepository = notificationsRepository,
+        _storage = storage,
         super(const HomeState()) {
     on<HomeStarted>(_onStarted);
     on<HomeRefreshed>(_onRefreshed);
@@ -35,18 +41,40 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     on<HomeNotificationsOpened>(_onNotificationsOpened);
     on<HomeTradeToggleSaved>(_onToggleSaved);
     on<HomeClearSaveFeedback>(_onClearSaveFeedback);
+    on<HomeLoggedOut>(_onLoggedOut);
   }
 
   final HomeRepository _repository;
   final AuthRepository _authRepository;
   final LivePricesService _livePrices;
   final WebSocketService _webSocket;
+  final NotificationsRepository _notificationsRepository;
+  final SecureStorage _storage;
 
   StreamSubscription<Map<String, double>>? _pricesSub;
   StreamSubscription<Map<String, dynamic>>? _notifSub;
 
+  Future<void> resetForLogout() {
+    final completer = Completer<void>();
+    add(HomeLoggedOut(completer));
+    return completer.future;
+  }
+
   Future<void> _onStarted(HomeStarted event, Emitter<HomeState> emit) async {
-    emit(state.copyWith(status: HomeStatus.loading, clearError: true));
+    if (state.status == HomeStatus.loading) return;
+    // Keep this flag for the complete signed-in session. The HomeBloc can be
+    // started again after visiting Profile, so consuming it once would make
+    // the empty state change mid-session.
+    final isNewUser = state.isNewUser ||
+        (await _storage.read(SecureStorage.isNewUser)) == 'true';
+
+    // Never retain a previous account's values while the next account loads.
+    emit(const HomeState());
+    emit(state.copyWith(
+      status: HomeStatus.loading,
+      clearError: true,
+      isNewUser: isNewUser,
+    ));
     unawaited(_webSocket.connect());
     await _loadInitial(emit, includeProfile: true);
     _livePrices.start();
@@ -58,6 +86,8 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     Emitter<HomeState> emit,
   ) async {
     emit(state.copyWith(isRefreshing: true, clearError: true));
+    // Bust cached data so pull-to-refresh always hits the network.
+    _repository.invalidateSubscriptions();
     unawaited(_webSocket.connect());
     await _loadInitial(emit, includeProfile: false);
     _bindLiveStreams();
@@ -81,12 +111,14 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       final feedFuture = _repository.fetchFeed(page: 1, segment: apiSegment);
       final subsFuture = _repository.fetchSubscriptions();
       final savedIdsFuture = _repository.fetchSavedTradeIds();
+      final unreadCountFuture = _notificationsRepository.fetchUnreadCount();
       final profileFuture =
           includeProfile ? _authRepository.getMe() : null;
 
       final feed = await feedFuture;
       final subs = await subsFuture;
       final savedIds = await savedIdsFuture;
+      final unreadCount = await unreadCountFuture;
       final profile = profileFuture == null ? null : await profileFuture;
 
       var activeTrades =
@@ -116,6 +148,8 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
           isRefreshing: false,
           clearError: true,
           savedTradeIds: savedIds,
+          unreadNotifications: unreadCount,
+          isNewUser: state.isNewUser,
         ),
       );
     } catch (e) {
@@ -253,6 +287,9 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     emit(
       state.copyWith(unreadNotifications: state.unreadNotifications + 1),
     );
+    // Bust notification cache so the next open of the notifications screen
+    // shows the new item without serving stale page-1 data.
+    _notificationsRepository.invalidateOnNewNotification();
     final type = (event.payload['type'] as String?) ?? '';
     if (type.startsWith('TRADE_')) {
       await _loadInitial(emit, includeProfile: false);
@@ -263,6 +300,9 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     HomeNotificationsOpened event,
     Emitter<HomeState> emit,
   ) {
+    // Only reset the local unread counter so the red dot clears immediately.
+    // The actual mark-all-read API is only called when the user explicitly
+    // taps "Mark all read" on the notifications screen.
     emit(state.copyWith(unreadNotifications: 0));
   }
 
@@ -281,6 +321,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     }
     emit(state.copyWith(
       savedTradeIds: optimistic,
+      savingTradeId: event.tradeId,
       cards: _applyLocalFilters(
         state.trades,
         query: state.query,
@@ -299,6 +340,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       emit(state.copyWith(
         saveTradeSuccess: !wasSaved,
         saveTradeError: null,
+        clearSavingTradeId: true,
       ));
     } catch (_) {
       // Rollback optimistic update on failure.
@@ -310,6 +352,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       }
       emit(state.copyWith(
         savedTradeIds: rolledBack,
+        clearSavingTradeId: true,
         cards: _applyLocalFilters(
           state.trades,
           query: state.query,
@@ -332,6 +375,21 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       clearSaveTradeSuccess: true,
       clearSaveTradeError: true,
     ));
+  }
+
+  Future<void> _onLoggedOut(
+    HomeLoggedOut event,
+    Emitter<HomeState> emit,
+  ) async {
+    await _pricesSub?.cancel();
+    _pricesSub = null;
+    await _notifSub?.cancel();
+    _notifSub = null;
+    _repository.invalidateSubscriptions();
+    await _livePrices.resetSession();
+    _webSocket.disconnect();
+    emit(const HomeState());
+    event.completer?.complete();
   }
 
   void _trackSymbols(List<HomeTrade> trades) {
@@ -408,10 +466,13 @@ List<TradingCardData> _applyLocalFilters(
         (card.asset?.toLowerCase().contains(q) ?? false);
 
     final matchesSegment = segment == 'All' ||
+        segment.isEmpty ||
         card.segment == segment ||
         card.asset == segment ||
         trade.categoryLabel == segment ||
-        trade.segmentLabel == segment;
+        trade.segmentLabel == segment ||
+        trade.categoryLabel.toLowerCase() == segment.toLowerCase() ||
+        trade.segmentLabel.toLowerCase() == segment.toLowerCase();
 
     if (matchesQuery && matchesSegment) {
       filtered.add(card);

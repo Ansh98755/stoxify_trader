@@ -6,6 +6,7 @@ import '../constants/color_constants.dart';
 import '../constants/text_style_constants.dart';
 import '../utils/app_size.dart';
 import 'tapered_divider.dart';
+import 'web_layout.dart';
 
 /// Flutter equivalent of the Figma plugin's `tradeCard(d)` composition.
 ///
@@ -63,12 +64,15 @@ class CommonTradingCard extends StatelessWidget {
               button: true,
               selected: data.isSaved,
               label: data.isSaved ? 'Remove saved trade' : 'Save trade',
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: data.onSaveTap,
-                child: const _AnimatedBookmarkRibbon()),
+              child: WebPointer(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: data.onSaveTap,
+                  child: const _AnimatedBookmarkRibbon(),
+                ),
               ),
             ),
+          ),
       ],
     );
   }
@@ -94,8 +98,6 @@ class _CardBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final String statusText =
-        data.tradeStatus ?? (isLoss ? 'Closed in loss' : 'In profit');
     final String estGain = data.estGain ?? (isLoss ? '-6.00%' : '+18.00%');
     final String liveRet = data.liveRet ?? (isLoss ? '-1.00x' : '+3.86%');
 
@@ -121,9 +123,10 @@ class _CardBody extends StatelessWidget {
         ),
       ),
       clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onViewDetails,
-        child: Padding(
+      child: WebPointer(
+        child: InkWell(
+          onTap: onViewDetails,
+          child: Padding(
         padding: EdgeInsets.fromLTRB(
           AppSize.w(context, 12),
           topPadding,
@@ -230,7 +233,8 @@ class _CardBody extends StatelessWidget {
           ],
         ),
       ),
-      ),
+    ),
+    ),
     );
   }
 }
@@ -304,7 +308,6 @@ class _InstrumentRow extends StatelessWidget {
                   color: ColorConstants.navy,
                 ),
               ),
-              SizedBox(height: AppSize.h(context, 2)),
               Text(
                 change,
                 style: TextStyle(
@@ -528,6 +531,7 @@ class _Avatar extends StatelessWidget {
 //     );
 //   }
 // }
+enum MarkerLabelPosition { standard, leftOfDot, rightOfDot, hidden }
 
 class _TimelineLiveTag extends StatelessWidget {
   const _TimelineLiveTag({
@@ -581,12 +585,12 @@ class _TimelineLiveTag extends StatelessWidget {
           // SL maps to 0 and Target maps to 1. The same calculation works
           // for short trades because their price range is reversed.
           final double entryProgress = hasValidRange
-              ? ((entryValue! - slValue!) / (targetValue! - slValue!))
-                  .clamp(0.08, 0.92)
+              ? ((entryValue - slValue) / (targetValue - slValue))
+                  .clamp(0.08, 0.88)
                   .toDouble()
               : 90 / 310;
           final double liveProgress = hasValidRange
-              ? ((liveValue! - slValue!) / (targetValue! - slValue!))
+              ? ((liveValue - slValue) / (targetValue - slValue))
                   .clamp(0.0, 1.0)
                   .toDouble()
               : entryProgress;
@@ -603,6 +607,18 @@ class _TimelineLiveTag extends StatelessWidget {
               )
               .toDouble();
 
+          final double distToTarget = targetX - entryX;
+          final double distToSl = entryX - slX;
+
+          final MarkerLabelPosition entryLabelPosition;
+          if (distToTarget < 60) {
+            entryLabelPosition = MarkerLabelPosition.leftOfDot;
+          } else if (distToSl < 40) {
+            entryLabelPosition = MarkerLabelPosition.rightOfDot;
+          } else {
+            entryLabelPosition = MarkerLabelPosition.standard;
+          }
+
           return Stack(
             clipBehavior: Clip.none,
             children: <Widget>[
@@ -610,7 +626,7 @@ class _TimelineLiveTag extends StatelessWidget {
                 left: slX,
                 top: lineY,
                 child: Container(
-                  width: entryX - slX,
+                  width: (entryX - slX).clamp(0.0, trackW),
                   height: thickness,
                   color: ColorConstants.red,
                 ),
@@ -619,7 +635,7 @@ class _TimelineLiveTag extends StatelessWidget {
                 left: entryX,
                 top: lineY,
                 child: Container(
-                  width: targetX - entryX,
+                  width: (targetX - entryX).clamp(0.0, trackW),
                   height: thickness,
                   color: ColorConstants.green,
                 ),
@@ -635,6 +651,7 @@ class _TimelineLiveTag extends StatelessWidget {
                 label: 'Entry',
                 dotTop: dotTop,
                 dotSize: dotSize,
+                labelPosition: entryLabelPosition,
               ),
               _TimelineMarker(
                 x: targetX,
@@ -722,6 +739,7 @@ class _TimelineMarker extends StatelessWidget {
     required this.dotTop,
     required this.dotSize,
     this.alignEnd = false,
+    this.labelPosition = MarkerLabelPosition.standard,
   });
 
   final double x;
@@ -729,9 +747,14 @@ class _TimelineMarker extends StatelessWidget {
   final double dotTop;
   final double dotSize;
   final bool alignEnd;
+  final MarkerLabelPosition labelPosition;
 
   @override
   Widget build(BuildContext context) {
+    if (labelPosition == MarkerLabelPosition.hidden) {
+      return const SizedBox.shrink();
+    }
+
     final double h = AppSize.h(context, 36);
     return SizedBox(
       width: double.infinity,
@@ -739,6 +762,68 @@ class _TimelineMarker extends StatelessWidget {
       child: LayoutBuilder(
         builder: (BuildContext context, BoxConstraints constraints) {
           final double labelTop = AppSize.h(context, 22);
+
+          Widget labelWidget;
+          if (alignEnd) {
+            labelWidget = Positioned(
+              right: constraints.maxWidth - x - (dotSize / 1),
+              top: labelTop,
+              child: Text(
+                label,
+                textAlign: TextAlign.right,
+                style: TextStyle(
+                  fontFamily: TextStyleConstants.fontFamilyDisplay,
+                  fontWeight: FontWeight.w600,
+                  fontSize: AppSize.sp(context, 10),
+                  color: ColorConstants.navy,
+                ),
+              ),
+            );
+          } else if (labelPosition == MarkerLabelPosition.leftOfDot) {
+            labelWidget = Positioned(
+              right: constraints.maxWidth - x + 2,
+              top: labelTop,
+              child: Text(
+                label,
+                textAlign: TextAlign.right,
+                style: TextStyle(
+                  fontFamily: TextStyleConstants.fontFamilyDisplay,
+                  fontWeight: FontWeight.w600,
+                  fontSize: AppSize.sp(context, 10),
+                  color: ColorConstants.navy,
+                ),
+              ),
+            );
+          } else if (labelPosition == MarkerLabelPosition.rightOfDot) {
+            labelWidget = Positioned(
+              left: x + (dotSize / 2) + 2,
+              top: labelTop,
+              child: Text(
+                label,
+                textAlign: TextAlign.left,
+                style: TextStyle(
+                  fontFamily: TextStyleConstants.fontFamilyDisplay,
+                  fontWeight: FontWeight.w600,
+                  fontSize: AppSize.sp(context, 10),
+                  color: ColorConstants.navy,
+                ),
+              ),
+            );
+          } else {
+            labelWidget = Positioned(
+              left: x - AppSize.w(context, 10),
+              top: labelTop,
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontFamily: TextStyleConstants.fontFamilyDisplay,
+                  fontWeight: FontWeight.w600,
+                  fontSize: AppSize.sp(context, 10),
+                  color: ColorConstants.navy,
+                ),
+              ),
+            );
+          }
 
           return Stack(
             clipBehavior: Clip.hardEdge,
@@ -755,35 +840,7 @@ class _TimelineMarker extends StatelessWidget {
                   ),
                 ),
               ),
-              if (alignEnd)
-                Positioned(
-                  right: constraints.maxWidth - x - (dotSize / 1),
-                  top: labelTop,
-                  child: Text(
-                    label,
-                    textAlign: TextAlign.right,
-                    style: TextStyle(
-                      fontFamily: TextStyleConstants.fontFamilyDisplay,
-                      fontWeight: FontWeight.w600,
-                      fontSize: AppSize.sp(context, 10),
-                      color: ColorConstants.navy,
-                    ),
-                  ),
-                )
-              else
-                Positioned(
-                  left: x - AppSize.w(context, 10),
-                  top: labelTop,
-                  child: Text(
-                    label,
-                    style: TextStyle(
-                      fontFamily: TextStyleConstants.fontFamilyDisplay,
-                      fontWeight: FontWeight.w600,
-                      fontSize: AppSize.sp(context, 10),
-                      color: ColorConstants.navy,
-                    ),
-                  ),
-                ),
+              labelWidget,
             ],
           );
         },

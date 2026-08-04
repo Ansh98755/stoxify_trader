@@ -6,6 +6,7 @@ import '../../../../app/routes/app_routing_name.dart';
 import '../../../../core/constants/color_constants.dart';
 import '../../../../core/constants/text_style_constants.dart';
 import '../../../../core/di/injection.dart';
+import '../../../../core/shimmer/shimmer_widgets.dart';
 import '../../../../core/utils/app_size.dart';
 import '../../../../core/widgets/app_chrome.dart';
 import '../../../../core/widgets/app_screen_background.dart';
@@ -98,8 +99,15 @@ class _SavedTradesViewState extends State<_SavedTradesView> {
                       builder: (context, state) {
                         // Loading
                         if (state.isLoading) {
-                          return const Center(
-                            child: CircularProgressIndicator(strokeWidth: 2),
+                          return ShimmerTradeList(
+                            count: 5,
+                            padding: AppSize.insets(
+                              context,
+                              left: 16,
+                              right: 16,
+                              top: 8,
+                              bottom: 32,
+                            ),
                           );
                         }
 

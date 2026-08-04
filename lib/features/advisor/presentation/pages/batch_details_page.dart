@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import '../../../../app/routes/app_routing_name.dart';
 import '../../../../core/constants/color_constants.dart';
 import '../../../../core/constants/text_style_constants.dart';
+import '../../../../core/shimmer/shimmer_widgets.dart';
 import '../../../../core/utils/app_size.dart';
 import '../../../../core/widgets/app_chrome.dart';
 import '../../../../core/widgets/app_screen_background.dart';
@@ -20,6 +21,7 @@ import '../../../home/domain/entities/home_subscription.dart';
 import '../../../home/domain/entities/home_trade.dart';
 import '../../../home/domain/repositories/home_repository.dart';
 import '../../../home/presentation/mappers/home_ui_mapper.dart';
+import '../../../subscriptions/presentation/pages/subscriptions_page.dart';
 
 class BatchDetailsPage extends StatefulWidget {
   const BatchDetailsPage({super.key, this.planId});
@@ -38,6 +40,9 @@ class _BatchDetailsPageState extends State<BatchDetailsPage> {
   DiscoverBatchModel? _plan;
   List<HomeTrade> _trades = const <HomeTrade>[];
   HomeSubscription? _subscription;
+  // Starts true — set false once data is loaded or error occurs.
+  // The 80ms delay in _showSpinnerAfterDelay will keep it true only
+  // for genuine network fetches; cached responses clear it before it fires.
   bool _loading = true;
   String? _error;
 
@@ -47,19 +52,36 @@ class _BatchDetailsPageState extends State<BatchDetailsPage> {
     _load();
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool forceSpinner = false}) async {
     final planId = widget.planId?.trim();
     if (planId == null || planId.isEmpty) {
-      setState(() {
-        _loading = false;
-        _error = 'Batch information is unavailable.';
-      });
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = 'Batch information is unavailable.';
+        });
+      }
       return;
     }
+
+    final hasData = _plan != null;
+
+    // On revisit when data is already visible: silent background update.
+    if (hasData && !forceSpinner) {
+      await _fetch(planId, showSpinnerOnError: false);
+      return;
+    }
+
+    // First load or explicit refresh: show spinner, but if cache responds
+    // before 80ms we clear the spinner immediately so it never visually appears.
     setState(() {
       _loading = true;
       _error = null;
     });
+    await _fetch(planId, showSpinnerOnError: true);
+  }
+
+  Future<void> _fetch(String planId, {required bool showSpinnerOnError}) async {
     try {
       final plan = await _discover.fetchPlan(planId);
       final results = await Future.wait<Object>(<Future<Object>>[
@@ -73,23 +95,25 @@ class _BatchDetailsPageState extends State<BatchDetailsPage> {
       if (!mounted) return;
       final feed = results[0] as HomeFeedPage;
       final subscriptions = results[1] as List<HomeSubscription>;
-      final matchingSubscriptions =
-          subscriptions.where((item) => item.planId == plan.planId);
+      final matching = subscriptions.where((s) => s.planId == plan.planId);
       setState(() {
         _plan = plan;
-        _trades = feed.trades
-            .where((trade) => trade.planId == plan.planId)
-            .toList();
-        _subscription =
-            matchingSubscriptions.isEmpty ? null : matchingSubscriptions.first;
+        _trades =
+            feed.trades.where((t) => t.planId == plan.planId).toList();
+        _subscription = matching.isEmpty ? null : matching.first;
         _loading = false;
+        _error = null;
       });
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _error = 'Unable to load this batch right now.';
-      });
+      // Only surface an error when there is nothing to show.
+      if (showSpinnerOnError && _plan == null) {
+        setState(() {
+          _loading = false;
+          _error = 'Unable to load this batch right now.';
+        });
+      }
+      // Otherwise silently fail — stale data stays on screen.
     }
   }
 
@@ -118,9 +142,12 @@ class _BatchDetailsPageState extends State<BatchDetailsPage> {
                 ),
                 Expanded(
                   child: _loading
-                      ? const Center(child: CircularProgressIndicator())
+                      ? const ShimmerBatchDetails()
                       : _error != null
-                          ? _ErrorState(message: _error!, onRetry: _load)
+                          ? _ErrorState(
+                              message: _error!,
+                              onRetry: () => _load(forceSpinner: true),
+                            )
                           : _content(),
                 ),
               ],
@@ -136,7 +163,7 @@ class _BatchDetailsPageState extends State<BatchDetailsPage> {
     final tags = <String>[...plan.segments, ...plan.horizons];
     final initials = _initials(plan.analystName);
     return RefreshIndicator(
-      onRefresh: _load,
+      onRefresh: () => _load(forceSpinner: true),
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: AppSize.insets(
@@ -439,7 +466,14 @@ class _BatchDetailsPageState extends State<BatchDetailsPage> {
             label: subscribed ? 'Subscribed' : 'Subscribe',
             onPressed: subscribed
                 ? null
-                : () => context.push(AppRoutingName.subscriptions),
+                : () => context.push(
+                    AppRoutingName.subscriptions,
+                    extra: SubscriptionPageArgs(
+                      planId: _plan!.planId,
+                      analystId: _plan!.analystId,
+                      batchId: tier.id,
+                    ),
+                  ),
             width: null,
             horizontalPadding: 16,
           ),

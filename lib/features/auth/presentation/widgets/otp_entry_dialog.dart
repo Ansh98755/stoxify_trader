@@ -13,10 +13,12 @@ Future<String?> showOtpEntryDialog({
   required BuildContext context,
   required String phoneNumber,
   VoidCallback? onResend,
+  String title = 'Enter verification code',
+  String confirmLabel = 'Verify OTP',
 }) {
   return showGeneralDialog<String>(
     context: context,
-    barrierDismissible: true,
+    barrierDismissible: false,
     barrierLabel: 'Dismiss OTP dialog',
     barrierColor: ColorConstants.navy.withValues(alpha: 0.58),
     transitionDuration: const Duration(milliseconds: 280),
@@ -24,6 +26,8 @@ Future<String?> showOtpEntryDialog({
       return _OtpEntryDialog(
         phoneNumber: phoneNumber,
         onResend: onResend,
+        title: title,
+        confirmLabel: confirmLabel,
       );
     },
     transitionBuilder:
@@ -57,10 +61,14 @@ class _OtpEntryDialog extends StatefulWidget {
   const _OtpEntryDialog({
     required this.phoneNumber,
     this.onResend,
+    required this.title,
+    required this.confirmLabel,
   });
 
   final String phoneNumber;
   final VoidCallback? onResend;
+  final String title;
+  final String confirmLabel;
 
   @override
   State<_OtpEntryDialog> createState() => _OtpEntryDialogState();
@@ -111,6 +119,7 @@ class _OtpEntryDialogState extends State<_OtpEntryDialog> {
   }
 
   String get _maskedPhoneNumber {
+    if (widget.phoneNumber.contains('•')) return widget.phoneNumber;
     if (widget.phoneNumber.length != 10) return '+91 ${widget.phoneNumber}';
     return '+91 ${widget.phoneNumber.substring(0, 5)} '
         '${widget.phoneNumber.substring(5)}';
@@ -181,7 +190,7 @@ class _OtpEntryDialogState extends State<_OtpEntryDialog> {
                     ),
                     SizedBox(height: AppSize.h(context, 16)),
                     Text(
-                      'Enter verification code',
+                      widget.title,
                       textAlign: TextAlign.center,
                       style: TextStyleConstants.sectionHeader.copyWith(
                         fontSize: AppSize.sp(context, 20),
@@ -299,7 +308,7 @@ class _OtpEntryDialogState extends State<_OtpEntryDialog> {
                     ),
                     SizedBox(height: AppSize.h(context, 24)),
                     CommonButtonWidget(
-                      label: 'Verify OTP',
+                      label: widget.confirmLabel,
                       onPressed: _isComplete
                           ? () => Navigator.of(context).pop(_otp)
                           : null,

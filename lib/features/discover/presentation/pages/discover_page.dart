@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:get_it/get_it.dart';
@@ -6,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../app/routes/app_routing_name.dart';
 import '../../../../core/constants/color_constants.dart';
 import '../../../../core/constants/text_style_constants.dart';
+import '../../../../core/shimmer/shimmer_widgets.dart';
 import '../../../../core/utils/app_size.dart';
 import '../../../../core/utils/main_tab_navigation.dart';
 import '../../../../core/widgets/app_filter_dialog.dart';
@@ -13,6 +16,8 @@ import '../../../../core/widgets/app_screen_background.dart';
 import '../../../../core/widgets/bottom_navbar.dart';
 import '../../../../core/widgets/common_batch_card.dart';
 import '../../../home/presentation/widgets/home_search_row.dart';
+import '../../../home/domain/repositories/home_repository.dart';
+import '../../../subscriptions/presentation/pages/subscriptions_page.dart';
 import '../../data/models/discover_facets_model.dart';
 import '../bloc/discover_bloc.dart';
 import '../bloc/discover_event.dart';
@@ -30,8 +35,12 @@ class DiscoverPage extends StatefulWidget {
 
 class _DiscoverPageState extends State<DiscoverPage> {
   late final DiscoverBloc _bloc;
+  final HomeRepository _homeRepository = GetIt.instance<HomeRepository>();
   DiscoverBrowseTab _browseTab = DiscoverBrowseTab.analysts;
+  Set<String> _activePlanIds = const <String>{};
+  Set<String> _activeBatchIds = const <String>{};
   final TextEditingController _searchController = TextEditingController();
+  Timer? _searchDebounce;
 
   AppFilterResult _filters = const AppFilterResult(
     segment: 'All',
@@ -111,6 +120,28 @@ class _DiscoverPageState extends State<DiscoverPage> {
     super.initState();
     _bloc = GetIt.instance<DiscoverBloc>();
     _fetchData();
+    _loadSubscriptions();
+  }
+
+  Future<void> _loadSubscriptions() async {
+    try {
+      final subscriptions = await _homeRepository.fetchSubscriptions();
+      if (!mounted) return;
+      setState(() {
+        _activePlanIds = subscriptions
+            .where((subscription) => subscription.isActive)
+            .map((subscription) => subscription.planId)
+            .whereType<String>()
+            .toSet();
+        _activeBatchIds = subscriptions
+            .where((subscription) => subscription.isActive)
+            .map((subscription) => subscription.batchId)
+            .whereType<String>()
+            .toSet();
+      });
+    } catch (_) {
+      // Subscription state is supplementary to browsing; keep cards usable.
+    }
   }
 
   void _fetchData({bool isRefresh = false}) {
@@ -163,6 +194,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _searchController.dispose();
     _bloc.close();
     super.dispose();
@@ -237,7 +269,11 @@ class _DiscoverPageState extends State<DiscoverPage> {
                       controller: _searchController,
                       hintText: 'Search analysts or batches',
                       onChanged: (String value) {
-                        _fetchData();
+                        _searchDebounce?.cancel();
+                        _searchDebounce = Timer(
+                          const Duration(milliseconds: 300),
+                          _fetchData,
+                        );
                       },
                       onFilterTap: _openFilters,
                       hasActiveFilters:
@@ -249,9 +285,9 @@ class _DiscoverPageState extends State<DiscoverPage> {
                       child: BlocBuilder<DiscoverBloc, DiscoverState>(
                         builder: (context, state) {
                           if (state.status == DiscoverStatus.loading) {
-                            return const Center(
-                              child: CircularProgressIndicator(),
-                            );
+                            return _browseTab == DiscoverBrowseTab.analysts
+                                ? const ShimmerAnalystList(count: 4)
+                                : const ShimmerBatchList(count: 3);
                           }
 
                           if (state.status == DiscoverStatus.failure) {
@@ -320,8 +356,18 @@ class _DiscoverPageState extends State<DiscoverPage> {
                                 itemBuilder: (context, index) {
                                   return CommonBatchCard(
                                     data: batches[index],
+                                    isSubscribed: _activePlanIds.contains(
+                                      state.batches[index].planId,
+                                    ) ||
+                                        state.batches[index].tiers.any(
+                                          (tier) => _activeBatchIds.contains(tier.id),
+                                        ),
                                     onSubscribe: () => context.push(
                                       AppRoutingName.subscriptions,
+                                      extra: SubscriptionPageArgs(
+                                        planId: state.batches[index].planId,
+                                        analystId: state.batches[index].analystId,
+                                      ),
                                     ),
                                     onTap: () => context.push(
                                       AppRoutingName.batchDetails,

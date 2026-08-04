@@ -4,16 +4,32 @@ import '../constants/color_constants.dart';
 import '../constants/text_style_constants.dart';
 import '../utils/app_size.dart';
 
+enum TimelineMarkerLabelPosition { standard, leftOfDot, rightOfDot, hidden }
+
 /// SL → Entry → Target timeline with Live marker (aligned with trade cards).
 class TradeSignalTimeline extends StatelessWidget {
   const TradeSignalTimeline({
     super.key,
     this.timestamp,
     this.isLive = true,
+    this.entry,
+    this.stopLoss,
+    this.target,
+    this.currentPrice,
   });
 
   final String? timestamp;
   final bool isLive;
+  final String? entry;
+  final String? stopLoss;
+  final String? target;
+  final String? currentPrice;
+
+  static double? _priceFrom(String? value) {
+    if (value == null) return null;
+    final String normalized = value.replaceAll(RegExp(r'[^0-9.-]'), '');
+    return double.tryParse(normalized);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -35,10 +51,44 @@ class TradeSignalTimeline extends StatelessWidget {
               final double trackLeft = inset;
               final double trackRight = maxW - inset;
               final double trackW = trackRight - trackLeft;
+
+              final double? slValue = _priceFrom(stopLoss);
+              final double? entryValue = _priceFrom(entry);
+              final double? targetValue = _priceFrom(target);
+              final double? liveValue = _priceFrom(currentPrice);
+
+              final bool hasValidRange = slValue != null &&
+                  entryValue != null &&
+                  targetValue != null &&
+                  (targetValue - slValue).abs() > 0.000001;
+
+              final double entryProgress = hasValidRange
+                  ? ((entryValue! - slValue!) / (targetValue! - slValue!))
+                      .clamp(0.08, 0.88)
+                      .toDouble()
+                  : 90 / 310;
+              final double liveProgress = hasValidRange && liveValue != null
+                  ? ((liveValue - slValue!) / (targetValue! - slValue!))
+                      .clamp(0.0, 1.0)
+                      .toDouble()
+                  : entryProgress + 0.12;
+
               final double slX = trackLeft;
-              final double entryX = trackLeft + (trackW * (90 / 310));
+              final double entryX = trackLeft + (trackW * entryProgress);
               final double targetX = trackRight;
-              final double liveX = entryX + ((targetX - entryX) * 0.12);
+              final double liveX = trackLeft + (trackW * liveProgress);
+
+              final double distToTarget = targetX - entryX;
+              final double distToSl = entryX - slX;
+
+              final TimelineMarkerLabelPosition entryLabelPosition;
+              if (distToTarget < 60) {
+                entryLabelPosition = TimelineMarkerLabelPosition.leftOfDot;
+              } else if (distToSl < 40) {
+                entryLabelPosition = TimelineMarkerLabelPosition.rightOfDot;
+              } else {
+                entryLabelPosition = TimelineMarkerLabelPosition.standard;
+              }
 
               return Stack(
                 clipBehavior: Clip.none,
@@ -47,7 +97,7 @@ class TradeSignalTimeline extends StatelessWidget {
                     left: slX,
                     top: lineY,
                     child: Container(
-                      width: entryX - slX,
+                      width: (entryX - slX).clamp(0.0, trackW),
                       height: thickness,
                       color: ColorConstants.red,
                     ),
@@ -56,7 +106,7 @@ class TradeSignalTimeline extends StatelessWidget {
                     left: entryX,
                     top: lineY,
                     child: Container(
-                      width: targetX - entryX,
+                      width: (targetX - entryX).clamp(0.0, trackW),
                       height: thickness,
                       color: ColorConstants.green,
                     ),
@@ -72,6 +122,7 @@ class TradeSignalTimeline extends StatelessWidget {
                     label: 'Entry',
                     dotTop: dotTop,
                     dotSize: dotSize,
+                    labelPosition: entryLabelPosition,
                   ),
                   _TimelineMarker(
                     x: targetX,
@@ -102,7 +153,9 @@ class TradeSignalTimeline extends StatelessWidget {
                             ),
                           ),
                           child: Text(
-                            'Live',
+                            currentPrice != null
+                                ? 'Live $currentPrice'
+                                : 'Live',
                             style: TextStyle(
                               fontFamily: TextStyleConstants.fontFamilyDisplay,
                               fontWeight: FontWeight.w600,
@@ -166,6 +219,7 @@ class _TimelineMarker extends StatelessWidget {
     required this.dotTop,
     required this.dotSize,
     this.alignEnd = false,
+    this.labelPosition = TimelineMarkerLabelPosition.standard,
   });
 
   final double x;
@@ -173,9 +227,14 @@ class _TimelineMarker extends StatelessWidget {
   final double dotTop;
   final double dotSize;
   final bool alignEnd;
+  final TimelineMarkerLabelPosition labelPosition;
 
   @override
   Widget build(BuildContext context) {
+    if (labelPosition == TimelineMarkerLabelPosition.hidden) {
+      return const SizedBox.shrink();
+    }
+
     final double h = AppSize.h(context, 36);
     return SizedBox(
       width: double.infinity,
@@ -183,6 +242,68 @@ class _TimelineMarker extends StatelessWidget {
       child: LayoutBuilder(
         builder: (BuildContext context, BoxConstraints constraints) {
           final double labelTop = AppSize.h(context, 22);
+
+          Widget labelWidget;
+          if (alignEnd) {
+            labelWidget = Positioned(
+              right: constraints.maxWidth - x - (dotSize / 1),
+              top: labelTop,
+              child: Text(
+                label,
+                textAlign: TextAlign.right,
+                style: TextStyle(
+                  fontFamily: TextStyleConstants.fontFamilyDisplay,
+                  fontWeight: FontWeight.w600,
+                  fontSize: AppSize.sp(context, 10),
+                  color: ColorConstants.navy,
+                ),
+              ),
+            );
+          } else if (labelPosition == TimelineMarkerLabelPosition.leftOfDot) {
+            labelWidget = Positioned(
+              right: constraints.maxWidth - x + 2,
+              top: labelTop,
+              child: Text(
+                label,
+                textAlign: TextAlign.right,
+                style: TextStyle(
+                  fontFamily: TextStyleConstants.fontFamilyDisplay,
+                  fontWeight: FontWeight.w600,
+                  fontSize: AppSize.sp(context, 10),
+                  color: ColorConstants.navy,
+                ),
+              ),
+            );
+          } else if (labelPosition == TimelineMarkerLabelPosition.rightOfDot) {
+            labelWidget = Positioned(
+              left: x + (dotSize / 2) + 2,
+              top: labelTop,
+              child: Text(
+                label,
+                textAlign: TextAlign.left,
+                style: TextStyle(
+                  fontFamily: TextStyleConstants.fontFamilyDisplay,
+                  fontWeight: FontWeight.w600,
+                  fontSize: AppSize.sp(context, 10),
+                  color: ColorConstants.navy,
+                ),
+              ),
+            );
+          } else {
+            labelWidget = Positioned(
+              left: x - AppSize.w(context, 10),
+              top: labelTop,
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontFamily: TextStyleConstants.fontFamilyDisplay,
+                  fontWeight: FontWeight.w600,
+                  fontSize: AppSize.sp(context, 10),
+                  color: ColorConstants.navy,
+                ),
+              ),
+            );
+          }
 
           return Stack(
             clipBehavior: Clip.hardEdge,
@@ -199,35 +320,7 @@ class _TimelineMarker extends StatelessWidget {
                   ),
                 ),
               ),
-              if (alignEnd)
-                Positioned(
-                  right: constraints.maxWidth - x - (dotSize / 1),
-                  top: labelTop,
-                  child: Text(
-                    label,
-                    textAlign: TextAlign.right,
-                    style: TextStyle(
-                      fontFamily: TextStyleConstants.fontFamilyDisplay,
-                      fontWeight: FontWeight.w600,
-                      fontSize: AppSize.sp(context, 10),
-                      color: ColorConstants.navy,
-                    ),
-                  ),
-                )
-              else
-                Positioned(
-                  left: x - AppSize.w(context, 10),
-                  top: labelTop,
-                  child: Text(
-                    label,
-                    style: TextStyle(
-                      fontFamily: TextStyleConstants.fontFamilyDisplay,
-                      fontWeight: FontWeight.w600,
-                      fontSize: AppSize.sp(context, 10),
-                      color: ColorConstants.navy,
-                    ),
-                  ),
-                ),
+              labelWidget,
             ],
           );
         },

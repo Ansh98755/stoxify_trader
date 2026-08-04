@@ -27,6 +27,8 @@ class HomeState extends Equatable {
     this.savedTradeIds = const <String>{},
     this.saveTradeSuccess,
     this.saveTradeError,
+    this.savingTradeId,
+    this.isNewUser = false,
   });
 
   final HomeStatus status;
@@ -53,6 +55,12 @@ class HomeState extends Equatable {
   /// Non-null when the save/unsave API call fails. Contains the error message.
   final String? saveTradeError;
 
+  /// Non-null while the save/unsave API call is in flight for a specific trade.
+  final String? savingTradeId;
+
+  /// True for the current signed-in new-user session.
+  final bool isNewUser;
+
   bool get isLoading => status == HomeStatus.loading && cards.isEmpty;
   bool get hasUnreadNotifications => unreadNotifications > 0;
 
@@ -78,6 +86,9 @@ class HomeState extends Equatable {
     bool clearSaveTradeSuccess = false,
     String? saveTradeError,
     bool clearSaveTradeError = false,
+    String? savingTradeId,
+    bool clearSavingTradeId = false,
+    bool? isNewUser,
   }) {
     return HomeState(
       status: status ?? this.status,
@@ -102,6 +113,10 @@ class HomeState extends Equatable {
       saveTradeError: clearSaveTradeError
           ? null
           : (saveTradeError ?? this.saveTradeError),
+      savingTradeId: clearSavingTradeId
+          ? null
+          : (savingTradeId ?? this.savingTradeId),
+      isNewUser: isNewUser ?? this.isNewUser,
     );
   }
 
@@ -125,5 +140,7 @@ class HomeState extends Equatable {
         savedTradeIds,
         saveTradeSuccess,
         saveTradeError,
+        savingTradeId,
+        isNewUser,
       ];
 }

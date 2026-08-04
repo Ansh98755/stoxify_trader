@@ -13,6 +13,10 @@ import '../../features/discover/data/datasources/discover_remote_data_source.dar
 import '../../features/discover/data/repositories/discover_repository_impl.dart';
 import '../../features/discover/domain/repositories/discover_repository.dart';
 import '../../features/discover/presentation/bloc/discover_bloc.dart';
+import '../../features/notifications/data/datasources/notifications_remote_data_source.dart';
+import '../../features/notifications/data/repositories/notifications_repository_impl.dart';
+import '../../features/notifications/domain/repositories/notifications_repository.dart';
+import '../../features/notifications/presentation/bloc/notifications_bloc.dart';
 import '../network/api_client.dart';
 import '../network/device_id.dart';
 import '../network/request_signer.dart';
@@ -29,7 +33,7 @@ Future<void> configureDependencies({
 
   final storage = SecureStorage();
   final deviceIds = DeviceIdProvider(storage);
-  final signer = await EcdsaRequestSigner.load();
+  final signer = await EcdsaRequestSigner.loadDev();
   final dio = buildDio(
     signer: signer,
     deviceIds: deviceIds,
@@ -69,12 +73,14 @@ Future<void> configureDependencies({
     ..registerFactory<LoginBloc>(
       () => LoginBloc(authRepository: getIt<AuthRepository>()),
     )
-    ..registerFactory<HomeBloc>(
+    ..registerLazySingleton<HomeBloc>(
       () => HomeBloc(
         repository: getIt<HomeRepository>(),
         authRepository: getIt<AuthRepository>(),
         livePrices: getIt<LivePricesService>(),
         webSocket: getIt<WebSocketService>(),
+        notificationsRepository: getIt<NotificationsRepository>(),
+        storage: getIt<SecureStorage>(),
       ),
     )
     ..registerLazySingleton<DiscoverRemoteDataSource>(
@@ -85,5 +91,16 @@ Future<void> configureDependencies({
     )
     ..registerFactory<DiscoverBloc>(
       () => DiscoverBloc(repository: getIt<DiscoverRepository>()),
+    )
+    ..registerLazySingleton<NotificationsRemoteDataSource>(
+      () => NotificationsRemoteDataSource(getIt<Dio>()),
+    )
+    ..registerLazySingleton<NotificationsRepository>(
+      () => NotificationsRepositoryImpl(
+        getIt<NotificationsRemoteDataSource>(),
+      ),
+    )
+    ..registerFactory<NotificationsBloc>(
+      () => NotificationsBloc(repository: getIt<NotificationsRepository>()),
     );
 }

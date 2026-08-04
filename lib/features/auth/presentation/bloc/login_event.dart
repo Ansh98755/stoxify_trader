@@ -32,3 +32,7 @@ final class LoginOtpSubmitted extends LoginEvent {
 final class LoginOtpResendRequested extends LoginEvent {
   const LoginOtpResendRequested();
 }
+
+final class LoginOtpEntryClosed extends LoginEvent {
+  const LoginOtpEntryClosed();
+}

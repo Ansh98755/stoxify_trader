@@ -46,7 +46,7 @@ class HomeTradeModel {
         (json['pnl_percent'] as num?)?.toDouble();
 
     return HomeTrade(
-      id: json['trade_id'] as String? ?? '',
+      id: (json['trade_id'] ?? json['id'] ?? json['_id'])?.toString() ?? '',
       symbol: symbol,
       companyName: (leg['name'] as String?)?.trim().isNotEmpty == true
           ? (leg['name'] as String).trim()
@@ -54,7 +54,7 @@ class HomeTradeModel {
       direction: _direction(leg['direction'] as String?),
       segment: _segment(json['segment'] as String?),
       category: _category(json['category'] as String?),
-      state: _state(json['status'] as String?),
+      state: _state((json['status'] ?? json['state'] ?? json['trade_status'])?.toString()),
       entry: entry,
       sl: sl,
       t1: t1,
@@ -144,6 +144,8 @@ class HomeTradeModel {
       case 'ACTIVE':
       case 'OPEN':
       case 'PUBLISHED':
+      case 'RUNNING':
+      case 'OPEN_POSITION':
         return HomeTradeState.live;
       case 'CLOSED_BY_TARGET':
       case 'TARGET_HIT':

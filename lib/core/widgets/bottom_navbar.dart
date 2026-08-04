@@ -1,5 +1,6 @@
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../constants/color_constants.dart';
@@ -42,6 +43,9 @@ class BottomNavbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // On web the side drawer handles navigation — render nothing.
+    if (kIsWeb) return const SizedBox.shrink();
+
     return SafeArea(
       minimum: AppSize.insets(context, left: 12, right: 12, bottom: 12),
       child: Container(

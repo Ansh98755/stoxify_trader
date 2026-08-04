@@ -6,6 +6,8 @@ import '../../domain/entities/home_trade.dart';
 import '../../domain/repositories/home_repository.dart';
 import '../models/home_subscription_model.dart';
 import '../models/home_trade_model.dart';
+import '../models/payment_transaction_model.dart';
+import '../../domain/entities/payment_transaction.dart';
 
 class HomeRemoteDataSource {
   HomeRemoteDataSource(this._dio);
@@ -48,14 +50,27 @@ class HomeRemoteDataSource {
         throw ServerFailure('Failed to load feed (${res.statusCode})');
       }
 
-      final data = (res.data as Map).cast<String, dynamic>();
-      final raw = (data['trades'] as List?) ?? const <dynamic>[];
+      final Map<String, dynamic>? dataMap = res.data is Map ? (res.data as Map).cast<String, dynamic>() : null;
+      List raw;
+      if (res.data is List) {
+        raw = res.data as List;
+      } else if (dataMap != null) {
+        raw = (dataMap['trades'] as List?) ??
+            (dataMap['data'] is List ? dataMap['data'] as List : null) ??
+            (dataMap['data'] is Map
+                ? (dataMap['data'] as Map)['trades'] as List?
+                : null) ??
+            (dataMap['results'] as List?) ??
+            const <dynamic>[];
+      } else {
+        raw = const <dynamic>[];
+      }
       final trades = raw
           .whereType<Map>()
           .map((e) => HomeTradeModel.fromJson(e.cast<String, dynamic>()))
           .toList();
 
-      final total = (data['total'] as num?)?.toInt() ?? raw.length;
+      final total = (dataMap?['total'] as num?)?.toInt() ?? raw.length;
       final loaded = (page - 1) * HomeRepository.pageSize + raw.length;
 
       return HomeFeedPage(
@@ -218,5 +233,22 @@ class HomeRemoteDataSource {
       }
       rethrow;
     }
+  }
+
+  Future<List<PaymentTransaction>> fetchPaymentTransactions() async {
+    final res = await _dio.get<dynamic>(
+      '/subscriptions/transactions',
+      queryParameters: const <String, dynamic>{'page': 1, 'limit': 100},
+    );
+    if (res.statusCode != 200) {
+      throw ServerFailure('Failed to load payment history (${res.statusCode})');
+    }
+    final data = (res.data as Map).cast<String, dynamic>();
+    return ((data['transactions'] as List?) ?? const <dynamic>[])
+        .whereType<Map>()
+        .map((item) => PaymentTransactionModel.fromJson(
+              item.cast<String, dynamic>(),
+            ))
+        .toList();
   }
 }

@@ -2,16 +2,24 @@ import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../app/routes/app_routing.dart';
 import '../../../../app/routes/app_routing_name.dart';
 import '../../../../core/constants/color_constants.dart';
 import '../../../../core/constants/text_style_constants.dart';
 import '../../../../core/utils/app_size.dart';
 import '../../../../core/utils/main_tab_navigation.dart';
 import '../../../../core/widgets/app_chrome.dart';
+import '../../../../core/widgets/common_app_notification_bar.dart';
 import '../../../../core/widgets/app_screen_background.dart';
 import '../../../../core/widgets/bottom_navbar.dart';
 import '../../../auth/domain/entities/auth_user.dart';
 import '../../../auth/domain/repositories/auth_repository.dart';
+import '../../../auth/presentation/widgets/otp_entry_dialog.dart';
+import '../../../discover/domain/repositories/discover_repository.dart';
+import '../../../home/domain/repositories/home_repository.dart';
+import '../../../home/presentation/bloc/home_bloc.dart';
+import '../../../notifications/domain/repositories/notifications_repository.dart';
+import '../widgets/kyc_bottom_sheet.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -56,6 +64,41 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
+  Future<void> _openEditProfile() async {
+    try {
+      final user = await _profileFuture;
+      if (!mounted) return;
+      final updated = await context.push<AuthUser>(
+        AppRoutingName.editProfile,
+        extra: AuthUserExtra(user),
+      );
+      if (updated != null && mounted) {
+        // Re-fetch from the API so the header shows all fields correctly
+        // (the PATCH response may not include every field like phone).
+        setState(_loadProfile);
+      }
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to open profile editor')),
+      );
+    }
+  }
+
+  Future<void> _openKyc([AuthUser? user]) async {
+    final result = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: ColorConstants.transparent,
+      builder: (context) => KycBottomSheet(
+        isVerified: user?.aadhaarVerified ?? false,
+      ),
+    );
+    if (result == true && mounted) {
+      setState(_loadProfile);
+    }
+  }
+
   Future<void> _logout() async {
     if (_loggingOut) return;
     final confirmed = await showDialog<bool>(
@@ -78,9 +121,75 @@ class _ProfilePageState extends State<ProfilePage> {
     if (confirmed != true || !mounted) return;
 
     setState(() => _loggingOut = true);
+    // Clear all in-memory caches before logout so the next user
+    // session starts completely fresh.
+    GetIt.instance<HomeRepository>().clearAll();
+    GetIt.instance<DiscoverRepository>().clearAll();
+    GetIt.instance<NotificationsRepository>().clearAll();
+    await GetIt.instance<HomeBloc>().resetForLogout();
     await GetIt.instance<AuthRepository>().logout();
     if (!mounted) return;
     context.go(AppRoutingName.login);
+  }
+
+  Future<void> _deleteAccount() async {
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (_) => const _DeleteAccountDialog(),
+    );
+    if (reason == null || !mounted) return;
+
+    final auth = GetIt.instance<AuthRepository>();
+    String maskedPhone;
+    try {
+      maskedPhone = await auth.requestAccountDeletionOtp();
+    } catch (_) {
+      if (!mounted) return;
+      await CommonAppNotificationBar.error(
+        context: context,
+        title: 'Could not send OTP',
+        message: 'Please try requesting account deletion again.',
+      );
+      return;
+    }
+    if (!mounted) return;
+
+    final otp = await showOtpEntryDialog(
+      context: context,
+      phoneNumber: maskedPhone,
+      title: 'Confirm account deletion',
+      confirmLabel: 'Confirm deletion',
+    );
+    if (otp == null || !mounted) return;
+
+    try {
+      final scheduledAt = await auth.deleteAccount(otp: otp, reason: reason);
+      if (!mounted) return;
+      final schedule = scheduledAt == null
+          ? 'Your account is scheduled for deletion.'
+          : 'Deletion is scheduled for ${scheduledAt.day.toString().padLeft(2, '0')}/'
+              '${scheduledAt.month.toString().padLeft(2, '0')}/${scheduledAt.year}.';
+      await CommonAppNotificationBar.success(
+        context: context,
+        title: 'Deletion requested',
+        message: schedule,
+        duration: const Duration(seconds: 2),
+      );
+      if (!mounted) return;
+      GetIt.instance<HomeRepository>().clearAll();
+      GetIt.instance<DiscoverRepository>().clearAll();
+      GetIt.instance<NotificationsRepository>().clearAll();
+      await GetIt.instance<HomeBloc>().resetForLogout();
+      await auth.logout();
+      if (mounted) context.go(AppRoutingName.login);
+    } catch (_) {
+      if (!mounted) return;
+      await CommonAppNotificationBar.error(
+        context: context,
+        title: 'Deletion not confirmed',
+        message: 'The OTP is invalid or has expired. Please try again.',
+      );
+    }
   }
 
   @override
@@ -110,7 +219,10 @@ class _ProfilePageState extends State<ProfilePage> {
                       if (snapshot.hasError) {
                         return _ProfileErrorCard(onRetry: _retry);
                       }
-                      return _ProfileHeaderCard(user: snapshot.data);
+                      return _ProfileHeaderCard(
+                        user: snapshot.data,
+                        onEditTap: snapshot.data != null ? _openEditProfile : null,
+                      );
                     },
                   ),
                   SizedBox(height: AppSize.h(context, 16)),
@@ -140,6 +252,14 @@ class _ProfilePageState extends State<ProfilePage> {
                         ),
                         SizedBox(height: AppSize.h(context, 10)),
                         AppMenuListTile(
+                          title: 'Payment history',
+                          subtitle: 'View completed and failed payments',
+                          leading: _icon(Icons.receipt_long_outlined),
+                          onTap: () =>
+                              context.push(AppRoutingName.paymentHistory),
+                        ),
+                        SizedBox(height: AppSize.h(context, 10)),
+                        AppMenuListTile(
                           title: 'Saved trades',
                           subtitle: 'Trades you bookmarked',
                           leading: _icon(Icons.bookmark_outline_rounded),
@@ -155,6 +275,35 @@ class _ProfilePageState extends State<ProfilePage> {
                               context.push(AppRoutingName.notifications),
                         ),
                         SizedBox(height: AppSize.h(context, 10)),
+                        FutureBuilder<AuthUser>(
+                          future: _profileFuture,
+                          builder: (context, snapshot) {
+                            final isVerified =
+                                snapshot.data?.aadhaarVerified ?? false;
+                            return Column(
+                              children: [
+                                AppMenuListTile(
+                                  title: isVerified
+                                      ? 'KYC Verification'
+                                      : 'Complete KYC',
+                                  subtitle: isVerified
+                                      ? 'KYC Verified'
+                                      : 'Verify your Aadhaar',
+                                  leading: _icon(
+                                    isVerified
+                                        ? Icons.verified_user_rounded
+                                        : Icons.verified_user_outlined,
+                                    color: isVerified
+                                        ? ColorConstants.green
+                                        : ColorConstants.brandBlue,
+                                  ),
+                                  onTap: () => _openKyc(snapshot.data),
+                                ),
+                                SizedBox(height: AppSize.h(context, 10)),
+                              ],
+                            );
+                          },
+                        ),
                         AppMenuListTile(
                           title: 'Settings',
                           subtitle: 'Privacy & account',
@@ -191,7 +340,7 @@ class _ProfilePageState extends State<ProfilePage> {
                             color: ColorConstants.red,
                           ),
                           destructive: true,
-                          onTap: () {},
+                          onTap: _deleteAccount,
                         ),
                         SizedBox(height: AppSize.h(context, 88)),
                       ],
@@ -235,6 +384,63 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 }
 
+class _DeleteAccountDialog extends StatefulWidget {
+  const _DeleteAccountDialog();
+
+  @override
+  State<_DeleteAccountDialog> createState() => _DeleteAccountDialogState();
+}
+
+class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
+  final TextEditingController _reasonController = TextEditingController();
+
+  @override
+  void dispose() {
+    _reasonController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('Delete account?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            const Text(
+              'We will send an OTP to your registered phone number to confirm this request.',
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _reasonController,
+              maxLines: 3,
+              maxLength: 250,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: const InputDecoration(
+                labelText: 'Reason for deletion',
+                hintText: 'Tell us why you are leaving',
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+          ],
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: _reasonController.text.trim().isEmpty
+                ? null
+                : () => Navigator.of(context).pop(_reasonController.text.trim()),
+            style: TextButton.styleFrom(foregroundColor: ColorConstants.red),
+            child: const Text('Send OTP'),
+          ),
+        ],
+      );
+}
+
 class _PersonalInfoSheet extends StatelessWidget {
   const _PersonalInfoSheet({required this.user});
 
@@ -259,9 +465,9 @@ class _PersonalInfoSheet extends StatelessWidget {
       (label: 'Name', value: _value(user.name)),
       (label: 'Phone', value: _value(user.phone)),
       (label: 'Email', value: _value(user.email)),
-      (label: 'User ID', value: user.userId),
-      (label: 'Account ID', value: _value(user.databaseId)),
-      (label: 'User type', value: _value(user.userType)),
+      // (label: 'User ID', value: user.userId),
+      // (label: 'Account ID', value: _value(user.databaseId)),
+      // (label: 'User type', value: _value(user.userType)),
       (label: 'Account status', value: _value(user.state)),
       (
         label: 'Interests',
@@ -279,28 +485,28 @@ class _PersonalInfoSheet extends StatelessWidget {
       ),
       (label: 'KYC verified at', value: _date(user.kycVerifiedAt)),
       (label: 'Last login', value: _date(user.lastLogin)),
-      (
-        label: 'Failed login attempts',
-        value: user.failedLoginAttempts.toString(),
-      ),
-      (label: 'Created at', value: _date(user.createdAt)),
-      (label: 'Updated at', value: _date(user.updatedAt)),
-      (
-        label: 'Deletion requested',
-        value: _date(user.deletionRequestedAt),
-      ),
-      (
-        label: 'Deletion scheduled',
-        value: _date(user.deletionScheduledAt),
-      ),
-      (
-        label: 'Deletion reminder sent',
-        value: _date(user.deletionReminderSentAt),
-      ),
-      (
-        label: 'State before deletion',
-        value: _value(user.stateBeforeDeletion),
-      ),
+      // (
+      //   label: 'Failed login attempts',
+      //   value: user.failedLoginAttempts.toString(),
+      // ),
+      // (label: 'Created at', value: _date(user.createdAt)),
+      // (label: 'Updated at', value: _date(user.updatedAt)),
+      // (
+      //   label: 'Deletion requested',
+      //   value: _date(user.deletionRequestedAt),
+      // ),
+      // (
+      //   label: 'Deletion scheduled',
+      //   value: _date(user.deletionScheduledAt),
+      // ),
+      // (
+      //   label: 'Deletion reminder sent',
+      //   value: _date(user.deletionReminderSentAt),
+      // ),
+      // (
+      //   label: 'State before deletion',
+      //   value: _value(user.stateBeforeDeletion),
+      // ),
     ];
 
     return SafeArea(
@@ -474,9 +680,10 @@ class _HistoryCard extends StatelessWidget {
 }
 
 class _ProfileHeaderCard extends StatelessWidget {
-  const _ProfileHeaderCard({this.user});
+  const _ProfileHeaderCard({this.user, this.onEditTap});
 
   final AuthUser? user;
+  final VoidCallback? onEditTap;
 
   String get _initials {
     final name = user?.name.trim() ?? '';
@@ -492,6 +699,7 @@ class _ProfileHeaderCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final loading = user == null;
+    final avatarSize = AppSize.r(context, 52);
     return Container(
       width: double.infinity,
       padding: AppSize.insets(
@@ -508,35 +716,78 @@ class _ProfileHeaderCard extends StatelessWidget {
       ),
       child: Row(
         children: <Widget>[
-          Container(
-            width: AppSize.r(context, 52),
-            height: AppSize.r(context, 52),
-            alignment: Alignment.center,
-            decoration: const BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: LinearGradient(
-                colors: <Color>[
-                  ColorConstants.brandBlueLight,
-                  ColorConstants.brandBlue,
-                ],
+          // Avatar
+          Stack(
+            clipBehavior: Clip.none,
+            children: <Widget>[
+              Container(
+                width: avatarSize,
+                height: avatarSize,
+                alignment: Alignment.center,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    colors: <Color>[
+                      ColorConstants.brandBlueLight,
+                      ColorConstants.brandBlue,
+                    ],
+                  ),
+                ),
+                child: loading
+                    ? SizedBox(
+                        width: AppSize.r(context, 18),
+                        height: AppSize.r(context, 18),
+                        child: const CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: ColorConstants.white,
+                        ),
+                      )
+                    : user!.profilePicUrl != null
+                        ? ClipOval(
+                            child: Image.network(
+                              user!.profilePicUrl!,
+                              fit: BoxFit.cover,
+                              width: avatarSize,
+                              height: avatarSize,
+                              errorBuilder: (_, _, _) => Text(
+                                _initials,
+                                style: TextStyleConstants.cardTitleSmall.copyWith(
+                                  color: ColorConstants.white,
+                                  fontSize: AppSize.sp(context, 16),
+                                ),
+                              ),
+                            ),
+                          )
+                        : Text(
+                            _initials,
+                            style: TextStyleConstants.cardTitleSmall.copyWith(
+                              color: ColorConstants.white,
+                              fontSize: AppSize.sp(context, 16),
+                            ),
+                          ),
               ),
-            ),
-            child: loading
-                ? SizedBox(
-                    width: AppSize.r(context, 18),
-                    height: AppSize.r(context, 18),
-                    child: const CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: ColorConstants.white,
-                    ),
-                  )
-                : Text(
-                    _initials,
-                    style: TextStyleConstants.cardTitleSmall.copyWith(
-                      color: ColorConstants.white,
-                      fontSize: AppSize.sp(context, 16),
+              if (onEditTap != null)
+                Positioned(
+                  right: -2,
+                  bottom: -2,
+                  child: GestureDetector(
+                    onTap: onEditTap,
+                    child: Container(
+                      width: AppSize.r(context, 20),
+                      height: AppSize.r(context, 20),
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: ColorConstants.brandBlue,
+                      ),
+                      child: Icon(
+                        Icons.edit_rounded,
+                        size: AppSize.r(context, 11),
+                        color: ColorConstants.white,
+                      ),
                     ),
                   ),
+                ),
+            ],
           ),
           SizedBox(width: AppSize.w(context, 12)),
           Expanded(
@@ -561,9 +812,56 @@ class _ProfileHeaderCard extends StatelessWidget {
                     color: ColorConstants.mute,
                   ),
                 ),
+                if (!loading && user!.aadhaarVerified) ...<Widget>[
+                  SizedBox(height: AppSize.h(context, 4)),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: ColorConstants.pillSuccessBg,
+                      borderRadius: BorderRadius.circular(
+                        AppSize.r(context, 6),
+                      ),
+                      border: Border.all(
+                        color: ColorConstants.profitBgStrong,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        Icon(
+                          Icons.verified_rounded,
+                          size: AppSize.r(context, 12),
+                          color: ColorConstants.green,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'KYC Verified',
+                          style: TextStyleConstants.caption.copyWith(
+                            fontSize: AppSize.sp(context, 11),
+                            fontWeight: FontWeight.w600,
+                            color: ColorConstants.green,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
+          if (onEditTap != null)
+            IconButton(
+              onPressed: onEditTap,
+              icon: Icon(
+                Icons.edit_outlined,
+                size: AppSize.r(context, 20),
+                color: ColorConstants.brandBlue,
+              ),
+              tooltip: 'Edit profile',
+            ),
         ],
       ),
     );

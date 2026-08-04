@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../app/routes/app_routing_name.dart';
 import '../../../../core/constants/color_constants.dart';
 import '../../../../core/constants/text_style_constants.dart';
+import '../../../../core/shimmer/shimmer_widgets.dart';
 import '../../../../core/utils/app_size.dart';
 import '../../../../core/widgets/app_screen_background.dart';
 import '../../../../core/widgets/common_batch_card.dart';
@@ -16,8 +17,10 @@ import '../../../discover/data/models/discover_batch_model.dart';
 import '../../../discover/domain/repositories/discover_repository.dart';
 import '../../../discover/presentation/mappers/discover_ui_mapper.dart';
 import '../../../home/domain/entities/home_trade.dart';
+import '../../../home/domain/entities/home_subscription.dart';
 import '../../../home/domain/repositories/home_repository.dart';
 import '../../../home/presentation/mappers/home_ui_mapper.dart';
+import '../../../subscriptions/presentation/pages/subscriptions_page.dart';
 
 class AdvisorProfilePage extends StatefulWidget {
   const AdvisorProfilePage({
@@ -43,10 +46,18 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
   double? _discoverWinRate;
   List<DiscoverBatchModel> _batches = const <DiscoverBatchModel>[];
   List<HomeTrade> _trades = const <HomeTrade>[];
+  bool _hasActiveSubscription = false;
+  Set<String> _activePlanIds = const <String>{};
+  Set<String> _activeBatchIds = const <String>{};
   int _tab = 0;
   int _tradePage = 0;
   bool _hasMoreTrades = true;
+  // Start without a spinner if we already have an initialProfile — the
+  // background fetch for batches and trades will complete without a full-page
+  // loading state.
   bool _loading = true;
+  bool _loadingBatches = false;
+  bool _loadingTrades = false;
   bool _loadingMoreTrades = false;
   String? _error;
 
@@ -59,6 +70,16 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
   void initState() {
     super.initState();
     _tradesController.addListener(_onTradesScroll);
+    // If we already have initialProfile, seed it immediately so the screen
+    // renders without a spinner while background data loads.
+    if (widget.initialProfile != null) {
+      _profile = widget.initialProfile;
+      _discoverWinRate = widget.initialProfile!.winRate;
+      _loading = false;
+      // Tab content still needs to load — show per-tab shimmer
+      _loadingBatches = true;
+      _loadingTrades = true;
+    }
     _loadProfile();
   }
 
@@ -70,7 +91,7 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
     super.dispose();
   }
 
-  Future<void> _loadProfile() async {
+  Future<void> _loadProfile({bool silent = false}) async {
     final analystId = _analystId;
     if (analystId == null) {
       setState(() {
@@ -80,12 +101,28 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
       return;
     }
 
-    setState(() {
-      _loading = true;
-      _error = null;
+    // Only show the full-page spinner on the very first load when we have
+    // no data at all. Subsequent calls (retry, pull-to-refresh) or calls
+    // when initialProfile was already seeded run silently.
+    final hasData = _profile != null;
+    if (!hasData && !silent) {
+      setState(() {
+        _loading = true;
+        _error = null;
+        _tradePage = 0;
+        _hasMoreTrades = true;
+      });
+    } else {
       _tradePage = 0;
       _hasMoreTrades = true;
-    });
+      if (silent) {
+        setState(() {
+          _loadingBatches = true;
+          _loadingTrades = true;
+        });
+      }
+    }
+
     try {
       final profileFuture = widget.initialProfile == null
           ? _discoverRepository.fetchAnalystProfile(analystId)
@@ -98,28 +135,61 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
           analystId: analystId,
           status: 'LIVE,CLOSED',
         ),
+        _homeRepository.fetchSubscriptions(),
       ]);
       if (!mounted) return;
       final feed = results[2] as HomeFeedPage;
       final profile = results[0] as DiscoverAnalystModel;
+      final subscriptions = results[3] as List<HomeSubscription>;
+      final batches = results[1] as List<DiscoverBatchModel>;
+      final batchPlanIds = batches.map((b) => b.planId).toSet();
+      final hasActiveSub = subscriptions.any(
+        (s) =>
+            s.isActive &&
+            (s.analystId == analystId ||
+                (s.planId != null && batchPlanIds.contains(s.planId))),
+      );
       setState(() {
         _profile = profile;
         _discoverWinRate = profile.winRate;
-        _batches = results[1] as List<DiscoverBatchModel>;
+        _batches = batches;
         _trades = feed.trades;
         _tradePage = feed.page;
         _hasMoreTrades = feed.hasMore;
+        _hasActiveSubscription = hasActiveSub;
+        _activePlanIds = subscriptions
+            .where((subscription) => subscription.isActive)
+            .map((subscription) => subscription.planId)
+            .whereType<String>()
+            .toSet();
+        _activeBatchIds = subscriptions
+            .where((subscription) => subscription.isActive)
+            .map((subscription) => subscription.batchId)
+            .whereType<String>()
+            .toSet();
         _loading = false;
+        _loadingBatches = false;
+        _loadingTrades = false;
+        _error = null;
       });
       if (widget.initialProfile == null) {
         _loadDiscoverWinRate(analystId);
       }
     } catch (_) {
       if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _error = 'Unable to load this analyst right now.';
-      });
+      if (_profile == null) {
+        setState(() {
+          _loading = false;
+          _loadingBatches = false;
+          _loadingTrades = false;
+          _error = 'Unable to load this analyst right now.';
+        });
+      } else {
+        setState(() {
+          _loadingBatches = false;
+          _loadingTrades = false;
+        });
+      }
     }
   }
 
@@ -180,9 +250,33 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
           SafeArea(
             bottom: false,
             child: _loading
-                ? const Center(child: CircularProgressIndicator())
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Padding(
+                        padding: AppSize.insets(context, left: 16, right: 16, top: 4),
+                        child: Material(
+                          color: ColorConstants.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(AppSize.r(context, 12)),
+                            side: const BorderSide(color: ColorConstants.line),
+                          ),
+                          child: InkWell(
+                            onTap: () => context.pop(),
+                            borderRadius: BorderRadius.circular(AppSize.r(context, 12)),
+                            child: SizedBox(
+                              width: AppSize.r(context, 40),
+                              height: AppSize.r(context, 40),
+                              child: Icon(Icons.arrow_back_rounded, size: AppSize.r(context, 20)),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const Expanded(child: ShimmerAdvisorProfile()),
+                    ],
+                  )
                 : _error != null
-                    ? _ErrorState(message: _error!, onRetry: _loadProfile)
+                    ? _ErrorState(message: _error!, onRetry: () => _loadProfile())
                     : _buildProfile(context),
           ),
         ],
@@ -332,83 +426,137 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
   }
 
   Widget _buildBatches() {
+    if (_loadingBatches) {
+      return ShimmerScope(
+        child: ListView.builder(
+          physics: const NeverScrollableScrollPhysics(),
+          padding: AppSize.insets(context, left: 16, right: 16, top: 6, bottom: 110),
+          itemCount: 3,
+          itemBuilder: (_, __) => Padding(
+            padding: EdgeInsets.only(bottom: AppSize.h(context, 18)),
+            child: const ShimmerBatchCard(),
+          ),
+        ),
+      );
+    }
     if (_batches.isEmpty) {
       return const _EmptyList(message: 'No active batches or plans.');
     }
-    return ListView.builder(
-      padding: AppSize.insets(
-        context,
-        left: 16,
-        right: 16,
-        top: 6,
-        bottom: 110,
-      ),
-      itemCount: _batches.length,
-      itemBuilder: (context, index) {
-        final batch = DiscoverUiMapper.toBatchData(_batches[index]);
-        return Padding(
-          padding: EdgeInsets.only(bottom: AppSize.h(context, 18)),
-          child: CommonBatchCard(
-            data: batch,
-            showAnalystProfile: false,
-            onTap: () => context.push(
-              AppRoutingName.batchDetails,
-              extra: _batches[index].planId,
+    return RefreshIndicator(
+      color: ColorConstants.brandBlue,
+      onRefresh: () => _loadProfile(silent: true),
+      child: ListView.builder(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: AppSize.insets(
+          context,
+          left: 16,
+          right: 16,
+          top: 6,
+          bottom: 110,
+        ),
+        itemCount: _batches.length,
+        itemBuilder: (context, index) {
+          final batch = DiscoverUiMapper.toBatchData(_batches[index]);
+          return Padding(
+            padding: EdgeInsets.only(bottom: AppSize.h(context, 18)),
+            child: CommonBatchCard(
+              data: batch,
+              showAnalystProfile: false,
+              isSubscribed:
+                  _activePlanIds.contains(_batches[index].planId) ||
+                  _batches[index].tiers.any(
+                    (tier) => _activeBatchIds.contains(tier.id),
+                  ),
+              onTap: () => context.push(
+                AppRoutingName.batchDetails,
+                extra: _batches[index].planId,
+              ),
+              onSubscribe: () => context.push(
+                AppRoutingName.subscriptions,
+                extra: SubscriptionPageArgs(
+                  planId: _batches[index].planId,
+                  analystId: _batches[index].analystId,
+                ),
+              ),
             ),
-            onSubscribe: () => context.push(AppRoutingName.subscriptions),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 
   Widget _buildTrades() {
-    if (_trades.isEmpty) {
-      // Pick the cheapest batch price to show in the CTA
-      String? priceLabel;
-      if (_batches.isNotEmpty) {
-        final cheapest = _batches.reduce(
-          (a, b) => a.startingPrice <= b.startingPrice ? a : b,
-        );
-        final suffix = DiscoverUiMapper.billingSuffix(
-          cheapest.cheapestTier?.billingCycle,
-        );
-        priceLabel = '₹${cheapest.startingPrice.round()}$suffix';
-      }
-      return _SubscribeEmptyState(
-        priceLabel: priceLabel,
-        onSubscribe: () => context.push(AppRoutingName.subscriptions),
+    if (_loadingTrades) {
+      return ShimmerScope(
+        child: ListView.builder(
+          physics: const NeverScrollableScrollPhysics(),
+          padding: AppSize.insets(context, left: 16, right: 16, top: 6, bottom: 110),
+          itemCount: 4,
+          itemBuilder: (_, __) => Padding(
+            padding: EdgeInsets.only(bottom: AppSize.h(context, 12)),
+            child: const ShimmerTradeCard(),
+          ),
+        ),
       );
     }
-    return ListView.builder(
-      controller: _tradesController,
-      padding: AppSize.insets(
-        context,
-        left: 16,
-        right: 16,
-        top: 6,
-        bottom: 110,
-      ),
-      itemCount: _trades.length + (_loadingMoreTrades ? 1 : 0),
-      itemBuilder: (context, index) {
-        if (index == _trades.length) {
-          return const Padding(
-            padding: EdgeInsets.all(16),
-            child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+    if (_trades.isEmpty) {
+      // Only show the subscribe CTA when the user has no active subscription
+      // to any of this analyst's plans. If they are subscribed but there are
+      // no trades yet, show a neutral empty state instead.
+      if (!_hasActiveSubscription) {
+        String? priceLabel;
+        if (_batches.isNotEmpty) {
+          final cheapest = _batches.reduce(
+            (a, b) => a.startingPrice <= b.startingPrice ? a : b,
           );
+          final suffix = DiscoverUiMapper.billingSuffix(
+            cheapest.cheapestTier?.billingCycle,
+          );
+          priceLabel = '₹${cheapest.startingPrice.round()}$suffix';
         }
-        final trade = _trades[index];
-        return Padding(
-          padding: EdgeInsets.only(bottom: AppSize.h(context, 12)),
-          child: CommonTradingCard(
-            data: mapHomeTradeToCard(trade),
-            onViewDetails: () => context.push(
-              AppRoutingName.tradeDetails,
-              extra: trade,
-            ),
-          ),
+        return _SubscribeEmptyState(
+          priceLabel: priceLabel,
+          onSubscribe: () => context.push(AppRoutingName.subscriptions),
         );
-      },
+      }
+      return const _EmptyList(message: 'No recent trades yet.');
+    }
+    return RefreshIndicator(
+      color: ColorConstants.brandBlue,
+      onRefresh: () => _loadProfile(silent: true),
+      child: ListView.builder(
+        controller: _tradesController,
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: AppSize.insets(
+          context,
+          left: 16,
+          right: 16,
+          top: 6,
+          bottom: 110,
+        ),
+        itemCount: _trades.length + (_loadingMoreTrades ? 1 : 0),
+        itemBuilder: (context, index) {
+          if (index == _trades.length) {
+            return Padding(
+              padding: EdgeInsets.symmetric(vertical: AppSize.h(context, 12)),
+              child: ShimmerScope(
+                child: ShimmerTradeCard(),
+              ),
+            );
+          }
+          final trade = _trades[index];
+          return Padding(
+            padding: EdgeInsets.only(bottom: AppSize.h(context, 12)),
+            child: CommonTradingCard(
+              data: mapHomeTradeToCard(trade),
+              onViewDetails: () => context.push(
+                AppRoutingName.tradeDetails,
+                extra: trade,
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 

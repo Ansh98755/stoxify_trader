@@ -7,6 +7,7 @@ class AuthUser {
     this.databaseId,
     this.userType,
     this.email,
+    this.profilePicUrl,
     this.isNewUser = false,
     this.interests = const [],
     this.deletionCancelled = false,
@@ -31,6 +32,7 @@ class AuthUser {
   final String? databaseId;
   final String? userType;
   final String? email;
+  final String? profilePicUrl;
   final bool isNewUser;
   final List<String> interests;
   final bool deletionCancelled;
@@ -48,10 +50,47 @@ class AuthUser {
   final List<AuthStateHistoryEntry> stateHistory;
 
   String get firstName {
-    final trimmed = name.trim();
+    var trimmed = name.trim();
     if (trimmed.isEmpty) return 'there';
     if (RegExp(r'^User \d{3,}$').hasMatch(trimmed)) return trimmed;
+
+    // Strip "I'm ", "Im ", "I am " prefix if present.
+    trimmed = trimmed.replaceFirst(RegExp(r"^(i'm|im|i am)\s+", caseSensitive: false), '');
+    if (trimmed.isEmpty) return 'there';
+
     return trimmed.split(RegExp(r'\s+')).first;
+  }
+
+  AuthUser copyWith({
+    String? name,
+    String? email,
+    String? profilePicUrl,
+  }) {
+    return AuthUser(
+      userId: userId,
+      name: name ?? this.name,
+      phone: phone,
+      state: state,
+      databaseId: databaseId,
+      userType: userType,
+      email: email ?? this.email,
+      profilePicUrl: profilePicUrl ?? this.profilePicUrl,
+      isNewUser: isNewUser,
+      interests: interests,
+      deletionCancelled: deletionCancelled,
+      lastLogin: lastLogin,
+      failedLoginAttempts: failedLoginAttempts,
+      deletionRequestedAt: deletionRequestedAt,
+      deletionScheduledAt: deletionScheduledAt,
+      deletionReminderSentAt: deletionReminderSentAt,
+      stateBeforeDeletion: stateBeforeDeletion,
+      aadhaarVerified: aadhaarVerified,
+      verificationAttempts: verificationAttempts,
+      kycVerifiedAt: kycVerifiedAt,
+      createdAt: createdAt,
+      updatedAt: updatedAt,
+      stateHistory: stateHistory,
+    );
   }
 
   factory AuthUser.fromVerifyResponse(Map<String, dynamic> json) {
@@ -62,6 +101,7 @@ class AuthUser {
       phone: user['phone'] as String? ?? '',
       state: user['state'] as String? ?? '',
       email: user['email'] as String?,
+      profilePicUrl: user['profile_pic_url'] as String?,
       isNewUser: json['is_new_user'] as bool? ?? false,
       interests: (user['interests'] as List?)?.cast<String>() ?? const [],
       deletionCancelled: json['deletion_cancelled'] as bool? ?? false,
@@ -80,6 +120,7 @@ class AuthUser {
       databaseId: json['_id'] as String?,
       userType: json['user_type'] as String?,
       email: json['email'] as String?,
+      profilePicUrl: json['profile_pic_url'] as String?,
       interests: (json['interests'] as List?)?.cast<String>() ?? const [],
       lastLogin: _date(json['last_login']),
       failedLoginAttempts:

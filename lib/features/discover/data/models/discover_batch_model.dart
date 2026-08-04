@@ -1,3 +1,102 @@
+class AvailableCoupon {
+  const AvailableCoupon({
+    required this.code,
+    required this.type,
+    required this.discountValue,
+    required this.discountAmount,
+    required this.finalPrice,
+    required this.applicable,
+    this.validTo,
+  });
+
+  final String code;
+  final String type;
+  final double discountValue;
+  final double discountAmount;
+  final double finalPrice;
+  final bool applicable;
+  final DateTime? validTo;
+
+  String get discountLabel => type == 'PERCENTAGE'
+      ? '${discountValue % 1 == 0 ? discountValue.toInt() : discountValue}% off'
+      : '₹${discountValue % 1 == 0 ? discountValue.toInt() : discountValue} off';
+
+  factory AvailableCoupon.fromJson(Map<String, dynamic> json) => AvailableCoupon(
+        code: json['code'] as String? ?? '',
+        type: json['type'] as String? ?? '',
+        discountValue: (json['discount_value'] as num?)?.toDouble() ?? 0,
+        discountAmount: (json['discount_amount'] as num?)?.toDouble() ?? 0,
+        finalPrice: (json['final_price'] as num?)?.toDouble() ?? 0,
+        applicable: json['applicable'] as bool? ?? false,
+        validTo: DateTime.tryParse(json['valid_to'] as String? ?? ''),
+      );
+}
+
+class CouponVerification {
+  const CouponVerification({
+    required this.valid,
+    required this.code,
+    required this.type,
+    required this.discountValue,
+    required this.discountAmount,
+    required this.finalPrice,
+  });
+
+  final bool valid;
+  final String code;
+  final String type;
+  final double discountValue;
+  final double discountAmount;
+  final double finalPrice;
+
+  factory CouponVerification.fromJson(Map<String, dynamic> json) =>
+      CouponVerification(
+        valid: json['valid'] as bool? ?? false,
+        code: json['code'] as String? ?? '',
+        type: json['type'] as String? ?? '',
+        discountValue: (json['discount_value'] as num?)?.toDouble() ?? 0,
+        discountAmount: (json['discount_amount'] as num?)?.toDouble() ?? 0,
+        finalPrice: (json['final_price'] as num?)?.toDouble() ?? 0,
+      );
+}
+
+class SubscriptionCheckout {
+  const SubscriptionCheckout({
+    required this.subscriptionId,
+    required this.razorpayOrderId,
+    required this.amount,
+    required this.currency,
+    required this.keyId,
+  });
+
+  final String subscriptionId;
+  final String razorpayOrderId;
+  final int amount;
+  final String currency;
+  final String keyId;
+
+  factory SubscriptionCheckout.fromJson(Map<String, dynamic> json) {
+    final subscription = (json['subscription'] as Map?)?.cast<String, dynamic>() ??
+        const <String, dynamic>{};
+    final order = (json['order'] as Map?)?.cast<String, dynamic>() ??
+        (json['razorpay'] as Map?)?.cast<String, dynamic>() ??
+        const <String, dynamic>{};
+    return SubscriptionCheckout(
+      subscriptionId: (subscription['subscription_id'] ?? subscription['id'] ?? '')
+          .toString(),
+      razorpayOrderId: (json['razorpay_order_id'] ??
+              json['order_id'] ??
+              order['razorpay_order_id'] ??
+              order['id'] ??
+              '')
+          .toString(),
+      amount: ((json['amount'] ?? order['amount']) as num?)?.toInt() ?? 0,
+      currency: (json['currency'] ?? order['currency'] ?? 'INR').toString(),
+      keyId: (json['key_id'] ?? order['key_id'] ?? order['key'] ?? '').toString(),
+    );
+  }
+}
+
 class DiscoverBatchTierModel {
   const DiscoverBatchTierModel({
     required this.id,

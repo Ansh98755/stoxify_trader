@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:equatable/equatable.dart';
 
 sealed class HomeEvent extends Equatable {
@@ -75,4 +77,12 @@ final class HomeTradeToggleSaved extends HomeEvent {
 /// Clears saveTradeSuccess / saveTradeError after the page has shown the flushbar.
 final class HomeClearSaveFeedback extends HomeEvent {
   const HomeClearSaveFeedback();
+}
+
+/// Resets all HomeBloc state back to its initial value.
+/// Must be dispatched on logout so the next user session starts clean.
+final class HomeLoggedOut extends HomeEvent {
+  const HomeLoggedOut([this.completer]);
+
+  final Completer<void>? completer;
 }

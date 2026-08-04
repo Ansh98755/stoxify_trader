@@ -48,6 +48,7 @@ class CommonBatchCard extends StatelessWidget {
     this.onSubscribe,
     this.onAnalystTap,
     this.showAnalystProfile = true,
+    this.isSubscribed = false,
   });
 
   final CommonBatchData data;
@@ -57,6 +58,7 @@ class CommonBatchCard extends StatelessWidget {
 
   /// When false (e.g. advisor profile), hides the analyst strip and uses a divider.
   final bool showAnalystProfile;
+  final bool isSubscribed;
 
   @override
   Widget build(BuildContext context) {
@@ -222,10 +224,99 @@ class CommonBatchCard extends StatelessWidget {
                             ),
                           ),
                         ),
-                        SizedBox(height: AppSize.h(context, 14)),
+                        SizedBox(height: AppSize.h(context, 6)),
                       ] else ...<Widget>[
-                        const TaperedHorizontalDivider(verticalPadding: 10),
+                        // const TaperedHorizontalDivider(verticalPadding: 10),
+                        SizedBox(height: 14,)
                       ],
+                      // Text(
+                      //   "About Batch",
+                      //   style: TextStyleConstants.bodyMedium.copyWith(color: ColorConstants.navyDark),
+                      // ),
+                      // SizedBox(height: AppSize.h(context,8),),
+                      // TaperedHorizontalDivider(),
+                      // SizedBox(height: AppSize.h(context,8),),
+                      // Text(data.description),
+                      Container(
+                        padding: AppSize.insets(
+                          context,
+                          left: 12,
+                          right: 12,
+                          top: 12,
+                          bottom: 12,
+                        ),
+                        decoration: BoxDecoration(
+                          borderRadius:
+                          BorderRadius.circular(AppSize.r(context, 16)),
+                          border: Border.all(
+                            color: ColorConstants.navy
+                                .withValues(alpha: 0.15),
+                          ),
+                          color: ColorConstants.white,
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: <Widget>[
+                            // Container(
+                            //   width: AppSize.r(context, 44),
+                            //   height: AppSize.r(context, 44),
+                            //   alignment: Alignment.center,
+                            //   decoration: BoxDecoration(
+                            //     shape: BoxShape.circle,
+                            //     gradient: LinearGradient(
+                            //       begin: Alignment.topLeft,
+                            //       end: Alignment.bottomRight,
+                            //       colors: <Color>[
+                            //         data.avatarStart,
+                            //         data.avatarEnd,
+                            //       ],
+                            //     ),
+                            //   ),
+                            //   child: Text(
+                            //     'About Batch',
+                            //     style: TextStyleConstants.caption.copyWith(
+                            //       color: ColorConstants.white,
+                            //       fontWeight: FontWeight.w700,
+                            //       fontSize: AppSize.sp(context, 14),
+                            //     ),
+                            //   ),
+                            // ),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: <Widget>[
+                                  Text(
+                                    'About Batch',
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyleConstants.bodyMedium
+                                        .copyWith(
+                                      fontSize: AppSize.sp(context, 14),
+                                      fontWeight: FontWeight.w700,
+                                      color: ColorConstants.mute,
+                                    ),
+                                  ),
+                                  SizedBox(height: AppSize.h(context, 4)),
+                                  Text(
+                                    data.description,
+                                    overflow: TextOverflow.ellipsis,
+                                    style:
+                                    TextStyleConstants.caption.copyWith(
+                                      fontSize: AppSize.sp(context, 11),
+                                      fontWeight: FontWeight.w600,
+                                      color: ColorConstants.soft,
+                                      letterSpacing: 0.2,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            // SizedBox(width: AppSize.w(context, 10)),
+                            // const SebiVerifiedPill(compact: true),
+                          ],
+                        ),
+                      ),
+                      SizedBox(height: 12,),
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: <Widget>[
@@ -268,12 +359,23 @@ class CommonBatchCard extends StatelessWidget {
                             ),
                           ),
                           CommonButtonWidget(
-                            label: 'Subscribe',
-                            onPressed: onSubscribe ?? () {},
+                            label: isSubscribed ? 'Subscribed' : 'Subscribe',
+                            onPressed: isSubscribed ? null : (onSubscribe ?? () {}),
                             width: null,
                             height: 40,
                             borderRadius: 10,
                             horizontalPadding: 16,
+                            backgroundColor: isSubscribed
+                                ? ColorConstants.pillSuccessBg
+                                : ColorConstants.brandBlue,
+                            foregroundColor: isSubscribed
+                                ? ColorConstants.green
+                                : ColorConstants.white,
+                            disabledBackgroundColor: ColorConstants.pillSuccessBg,
+                            disabledForegroundColor: ColorConstants.green,
+                            borderColor: isSubscribed
+                                ? ColorConstants.green.withValues(alpha: 0.35)
+                                : null,
                           ),
                         ],
                       ),
