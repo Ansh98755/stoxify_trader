@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -9,6 +8,7 @@ import '../../../../core/constants/text_style_constants.dart';
 import '../../../../core/di/injection.dart';
 import '../../../../core/shimmer/shimmer_widgets.dart';
 import '../../../../core/utils/app_size.dart';
+import '../../../../core/utils/responsive_layout.dart';
 import '../../../../core/widgets/app_chrome.dart';
 import '../../../../core/widgets/app_screen_background.dart';
 import '../../../../core/widgets/common_app_notification_bar.dart';
@@ -101,7 +101,7 @@ class _SavedTradesViewState extends State<_SavedTradesView> {
                       builder: (context, state) {
                         // Loading
                         if (state.isLoading) {
-                          if (kIsWeb) {
+                          if (isDesktopWeb(context)) {
                             return CustomScrollView(
                               physics: const AlwaysScrollableScrollPhysics(),
                               slivers: <Widget>[
@@ -160,7 +160,7 @@ class _SavedTradesViewState extends State<_SavedTradesView> {
                                 .stream
                                 .firstWhere((s) => !s.isRefreshing);
                           },
-                          child: kIsWeb
+                          child: isDesktopWeb(context)
                               ? CustomScrollView(
                                   physics:
                                       const AlwaysScrollableScrollPhysics(),

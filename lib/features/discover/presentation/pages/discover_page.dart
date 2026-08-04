@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:get_it/get_it.dart';
@@ -12,6 +11,7 @@ import '../../../../core/constants/text_style_constants.dart';
 import '../../../../core/shimmer/shimmer_widgets.dart';
 import '../../../../core/utils/app_size.dart';
 import '../../../../core/utils/main_tab_navigation.dart';
+import '../../../../core/utils/responsive_layout.dart';
 import '../../../../core/widgets/app_filter_dialog.dart';
 import '../../../../core/widgets/app_screen_background.dart';
 import '../../../../core/widgets/bottom_navbar.dart';
@@ -248,7 +248,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
 
   @override
   Widget build(BuildContext context) {
-    final bool isWeb = kIsWeb;
+    final bool isWeb = isDesktopWeb(context);
 
     final scaffold = Scaffold(
       extendBody: !isWeb,

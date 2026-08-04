@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -6,6 +5,7 @@ import '../../app/routes/app_routing_name.dart';
 import '../constants/color_constants.dart';
 import '../constants/text_style_constants.dart';
 import '../utils/main_tab_navigation.dart';
+import '../utils/responsive_layout.dart';
 
 /// Left-side navigation rail shown only on web.
 /// Replaces [BottomNavbar] on wide screens.
@@ -49,7 +49,7 @@ class WebSideDrawer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (!kIsWeb) return child;
+    if (!isDesktopWeb(context)) return child;
 
     return Material(
       color: ColorConstants.white,

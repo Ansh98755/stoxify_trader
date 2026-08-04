@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -10,6 +9,7 @@ import '../../../../core/constants/text_style_constants.dart';
 import '../../../../core/di/injection.dart';
 import '../../../../core/utils/app_size.dart';
 import '../../../../core/utils/main_tab_navigation.dart';
+import '../../../../core/utils/responsive_layout.dart';
 import '../../../../core/widgets/app_loader.dart';
 import '../../../../core/widgets/app_filter_dialog.dart';
 import '../../../../core/shimmer/shimmer_widgets.dart';
@@ -132,7 +132,7 @@ class _HomeViewState extends State<_HomeView> {
 
   @override
   Widget build(BuildContext context) {
-    final bool isWeb = kIsWeb;
+    final bool isWeb = isDesktopWeb(context);
 
     final scaffold = Scaffold(
       extendBody: !isWeb,
@@ -571,7 +571,7 @@ class _HeaderIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bool isWeb = kIsWeb;
+    final bool isWeb = isDesktopWeb(context);
     return Container(
       height: 35,
       width: 35,
@@ -619,7 +619,7 @@ class _HomeEmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bool isWeb = kIsWeb;
+    final bool isWeb = isDesktopWeb(context);
     return Padding(
       padding: EdgeInsets.only(
         top: isWeb ? 24 : AppSize.h(context, 16),
@@ -730,7 +730,7 @@ class _HomeError extends StatelessWidget {
   Widget build(BuildContext context) {
     return Center(
       child: Padding(
-        padding: kIsWeb
+        padding: isDesktopWeb(context)
             ? const EdgeInsets.symmetric(horizontal: 24)
             : AppSize.symmetric(context, horizontal: 24),
         child: Column(
@@ -741,10 +741,10 @@ class _HomeError extends StatelessWidget {
               textAlign: TextAlign.center,
               style: TextStyleConstants.bodyMedium.copyWith(
                 color: ColorConstants.mute,
-                fontSize: kIsWeb ? 14 : AppSize.sp(context, 13),
+                fontSize: isDesktopWeb(context) ? 14 : AppSize.sp(context, 13),
               ),
             ),
-            SizedBox(height: kIsWeb ? 12 : AppSize.h(context, 12)),
+            SizedBox(height: isDesktopWeb(context) ? 12 : AppSize.h(context, 12)),
             TextButton(onPressed: onRetry, child: const Text('Retry')),
           ],
         ),
@@ -762,7 +762,7 @@ class _HomeEmptyStepRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bool isWeb = kIsWeb;
+    final bool isWeb = isDesktopWeb(context);
     return Row(
       children: [
         Container(

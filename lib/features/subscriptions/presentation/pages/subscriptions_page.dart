@@ -1,7 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb, kReleaseMode;
 import 'package:get_it/get_it.dart';
 import 'package:go_router/go_router.dart';
 
@@ -10,6 +10,7 @@ import '../../../../core/constants/color_constants.dart';
 import '../../../../core/constants/text_style_constants.dart';
 import '../../../../core/services/payment_checkout.dart';
 import '../../../../core/utils/app_size.dart';
+import '../../../../core/utils/responsive_layout.dart';
 import '../../../../core/widgets/app_chrome.dart';
 import '../../../../core/widgets/common_app_notification_bar.dart';
 import '../../../../core/widgets/app_screen_background.dart';
@@ -293,7 +294,7 @@ class _SubscriptionsPageState extends State<SubscriptionsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final EdgeInsets pagePad = kIsWeb
+    final EdgeInsets pagePad = isDesktopWeb(context)
         ? const EdgeInsets.fromLTRB(20, 8, 20, 0)
         : AppSize.insets(context, left: 16, right: 16, top: 8);
 
@@ -307,7 +308,7 @@ class _SubscriptionsPageState extends State<SubscriptionsPage> {
               alignment: Alignment.topCenter,
               child: ConstrainedBox(
                 constraints: BoxConstraints(
-                  maxWidth: kIsWeb ? 520 : double.infinity,
+                  maxWidth: isDesktopWeb(context) ? 520 : double.infinity,
                 ),
                 child: Padding(
                   padding: pagePad,

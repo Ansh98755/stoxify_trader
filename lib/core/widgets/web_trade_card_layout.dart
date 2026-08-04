@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
+import '../utils/responsive_layout.dart';
+
 /// Shared web-only layout for trade card feeds (max 2 per row).
 ///
 /// Uses row pairs instead of a fixed-height [SliverGrid] so cards hug their
@@ -11,7 +13,7 @@ abstract final class WebTradeCardLayout {
   static const int crossAxisCount = 2;
 }
 
-/// Builds a full-width, max-2-column trade card feed for web.
+/// Builds a full-width, max-2-column trade card feed for wide web viewports.
 class WebTradeCardGridSliver extends StatelessWidget {
   const WebTradeCardGridSliver({
     super.key,
@@ -26,7 +28,10 @@ class WebTradeCardGridSliver extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    assert(kIsWeb, 'WebTradeCardGridSliver is only for web');
+    assert(
+      kIsWeb && isDesktopWeb(context),
+      'WebTradeCardGridSliver is only for wide web',
+    );
 
     final int rowCount = (itemCount + 1) ~/ WebTradeCardLayout.crossAxisCount;
 

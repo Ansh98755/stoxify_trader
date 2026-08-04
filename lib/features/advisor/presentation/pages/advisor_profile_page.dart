@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
 import 'package:go_router/go_router.dart';
@@ -8,6 +7,7 @@ import '../../../../core/constants/color_constants.dart';
 import '../../../../core/constants/text_style_constants.dart';
 import '../../../../core/shimmer/shimmer_widgets.dart';
 import '../../../../core/utils/app_size.dart';
+import '../../../../core/utils/responsive_layout.dart';
 import '../../../../core/widgets/app_screen_background.dart';
 import '../../../../core/widgets/common_batch_card.dart';
 import '../../../../core/widgets/common_button_widget.dart';
@@ -293,7 +293,7 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
     final averagePnl =
         '${profile.avgPnlPercent >= 0 ? '+' : ''}${profile.avgPnlPercent.toStringAsFixed(2)}%';
     final initials = _initials(profile.name);
-    final bool isWeb = kIsWeb;
+    final bool isWeb = isDesktopWeb(context);
     final EdgeInsets pagePad = isWeb
         ? const EdgeInsets.fromLTRB(20, 4, 20, 0)
         : AppSize.insets(context, left: 16, right: 16, top: 4);
@@ -457,7 +457,7 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
   }
 
   Widget _buildBatches() {
-    final bool isWeb = kIsWeb;
+    final bool isWeb = isDesktopWeb(context);
     if (_loadingBatches) {
       if (isWeb) {
         return _WebTwoColScroll(
@@ -539,7 +539,7 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
   }
 
   Widget _buildTrades() {
-    final bool isWeb = kIsWeb;
+    final bool isWeb = isDesktopWeb(context);
     if (_loadingTrades) {
       if (isWeb) {
         return _WebTwoColScroll(
@@ -751,7 +751,7 @@ class _Stat extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bool isWeb = kIsWeb;
+    final bool isWeb = isDesktopWeb(context);
     return Expanded(
       child: Column(
         children: <Widget>[

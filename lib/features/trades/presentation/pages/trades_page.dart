@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
 import 'package:go_router/go_router.dart';
@@ -14,6 +13,7 @@ import '../../../../core/services/live_prices_service.dart';
 import '../../../../core/shimmer/shimmer_widgets.dart';
 import '../../../../core/utils/app_size.dart';
 import '../../../../core/utils/main_tab_navigation.dart';
+import '../../../../core/utils/responsive_layout.dart';
 import '../../../../core/widgets/app_screen_background.dart';
 import '../../../../core/widgets/bottom_navbar.dart';
 import '../../../../core/widgets/common_trading_card.dart';
@@ -202,7 +202,7 @@ class _TradesPageState extends State<TradesPage> {
 
   @override
   Widget build(BuildContext context) {
-    final bool isWeb = kIsWeb;
+    final bool isWeb = isDesktopWeb(context);
     final sectionLabel = _statusTab == TradesStatusTab.active
         ? 'Active trades'
         : 'Closed trades';
@@ -270,7 +270,7 @@ class _TradesPageState extends State<TradesPage> {
   }
 
   Widget _buildContent() {
-    final bool isWeb = kIsWeb;
+    final bool isWeb = isDesktopWeb(context);
 
     if (_loading) {
       if (isWeb) {
