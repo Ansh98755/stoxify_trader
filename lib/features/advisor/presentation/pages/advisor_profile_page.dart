@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
 import 'package:go_router/go_router.dart';
@@ -12,6 +13,7 @@ import '../../../../core/widgets/common_batch_card.dart';
 import '../../../../core/widgets/common_button_widget.dart';
 import '../../../../core/widgets/common_trading_card.dart';
 import '../../../../core/widgets/sebi_verified_pill.dart';
+import '../../../../core/widgets/web_trade_card_layout.dart';
 import '../../../discover/data/models/discover_analyst_model.dart';
 import '../../../discover/data/models/discover_batch_model.dart';
 import '../../../discover/domain/repositories/discover_repository.dart';
@@ -289,13 +291,17 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
     final winRate =
         '${((_discoverWinRate ?? profile.winRate) * 100).round()}%';
     final averagePnl =
-        '${profile.avgPnlPercent >= 0 ? '+' : ''}${profile.avgPnlPercent}%';
+        '${profile.avgPnlPercent >= 0 ? '+' : ''}${profile.avgPnlPercent.toStringAsFixed(2)}%';
     final initials = _initials(profile.name);
+    final bool isWeb = kIsWeb;
+    final EdgeInsets pagePad = isWeb
+        ? const EdgeInsets.fromLTRB(20, 4, 20, 0)
+        : AppSize.insets(context, left: 16, right: 16, top: 4);
 
     return Column(
       children: <Widget>[
         Padding(
-          padding: AppSize.insets(context, left: 16, right: 16, top: 4),
+          padding: pagePad,
           child: Stack(
             alignment: Alignment.topCenter,
             children: <Widget>[
@@ -333,7 +339,7 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
                     profile.name,
                     textAlign: TextAlign.center,
                     style: TextStyleConstants.cardTitle.copyWith(
-                      fontSize: AppSize.sp(context, 20),
+                      fontSize: isWeb ? 22 : AppSize.sp(context, 20),
                     ),
                   ),
                   if (profile.sebiLicenseNumber != null) ...<Widget>[
@@ -355,78 +361,110 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
             ],
           ),
         ),
-        SizedBox(height: AppSize.h(context, 10)),
+        SizedBox(height: isWeb ? 12 : AppSize.h(context, 10)),
+        // Stats strip: on web, cap width and center so it does not stretch edge-to-edge.
         Padding(
-          padding: AppSize.symmetric(context, horizontal: 16),
-          child: Container(
-            width: double.infinity,
-            padding: AppSize.insets(
-              context,
-              left: 14,
-              right: 14,
-              top: 12,
-              bottom: 12,
-            ),
-            decoration: BoxDecoration(
-              color: ColorConstants.white,
-              borderRadius: BorderRadius.circular(AppSize.r(context, 16)),
-              border: Border.all(color: ColorConstants.line),
-            ),
-            child: Row(
-              children: <Widget>[
-                _Stat(winRate, 'Win rate', ColorConstants.green),
-                _Stat(
-                  averagePnl,
-                  'Avg P&L',
-                  profile.avgPnlPercent < 0
-                      ? ColorConstants.red
-                      : ColorConstants.green,
+          padding: isWeb
+              ? const EdgeInsets.symmetric(horizontal: 20)
+              : AppSize.symmetric(context, horizontal: 16),
+          child: Align(
+            alignment: Alignment.center,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: isWeb ? 560 : double.infinity,
+              ),
+              child: Container(
+                width: double.infinity,
+                padding: isWeb
+                    ? const EdgeInsets.symmetric(horizontal: 16, vertical: 14)
+                    : AppSize.insets(
+                        context,
+                        left: 14,
+                        right: 14,
+                        top: 12,
+                        bottom: 12,
+                      ),
+                decoration: BoxDecoration(
+                  color: ColorConstants.white,
+                  borderRadius: BorderRadius.circular(
+                    isWeb ? 14 : AppSize.r(context, 16),
+                  ),
+                  border: Border.all(color: ColorConstants.line),
                 ),
-                _Stat(
-                  profile.totalTrades.toString(),
-                  'Trades',
-                  ColorConstants.ink,
+                child: Row(
+                  children: <Widget>[
+                    _Stat(winRate, 'Win rate', ColorConstants.green),
+                    _Stat(
+                      averagePnl,
+                      'Avg P&L',
+                      profile.avgPnlPercent < 0
+                          ? ColorConstants.red
+                          : ColorConstants.green,
+                    ),
+                    _Stat(
+                      profile.totalTrades.toString(),
+                      'Trades',
+                      ColorConstants.ink,
+                    ),
+                    _Stat(
+                      profile.totalSubscribers.toString(),
+                      'Subscribers',
+                      ColorConstants.ink,
+                    ),
+                  ],
                 ),
-                _Stat(
-                  profile.totalSubscribers.toString(),
-                  'Subscribers',
-                  ColorConstants.ink,
-                ),
-              ],
+              ),
             ),
           ),
         ),
-        SizedBox(height: AppSize.h(context, 16)),
+        SizedBox(height: isWeb ? 14 : AppSize.h(context, 16)),
         Padding(
-          padding: AppSize.symmetric(context, horizontal: 16),
-          child: Row(
-            children: <Widget>[
-              Expanded(
-                child: _ProfileTab(
-                  label: 'Batches & Plans',
-                  selected: _tab == 0,
-                  onTap: () => setState(() => _tab = 0),
-                ),
+          padding: isWeb
+              ? const EdgeInsets.symmetric(horizontal: 20)
+              : AppSize.symmetric(context, horizontal: 16),
+          child: Align(
+            alignment: Alignment.center,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: isWeb ? 720 : double.infinity,
               ),
-              SizedBox(width: AppSize.w(context, 8)),
-              Expanded(
-                child: _ProfileTab(
-                  label: 'Recent Trades',
-                  selected: _tab == 1,
-                  onTap: () => setState(() => _tab = 1),
-                ),
+              child: Row(
+                children: <Widget>[
+                  Expanded(
+                    child: _ProfileTab(
+                      label: 'Batches & Plans',
+                      selected: _tab == 0,
+                      onTap: () => setState(() => _tab = 0),
+                    ),
+                  ),
+                  SizedBox(width: isWeb ? 10 : AppSize.w(context, 8)),
+                  Expanded(
+                    child: _ProfileTab(
+                      label: 'Recent Trades',
+                      selected: _tab == 1,
+                      onTap: () => setState(() => _tab = 1),
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
-        SizedBox(height: AppSize.h(context, 12)),
+        SizedBox(height: isWeb ? 12 : AppSize.h(context, 12)),
         Expanded(child: _tab == 0 ? _buildBatches() : _buildTrades()),
       ],
     );
   }
 
   Widget _buildBatches() {
+    final bool isWeb = kIsWeb;
     if (_loadingBatches) {
+      if (isWeb) {
+        return _WebTwoColScroll(
+          itemCount: 4,
+          itemBuilder: (_, __) => const ShimmerBatchCard(),
+        );
+      }
       return ShimmerScope(
         child: ListView.builder(
           physics: const NeverScrollableScrollPhysics(),
@@ -442,6 +480,41 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
     if (_batches.isEmpty) {
       return const _EmptyList(message: 'No active batches or plans.');
     }
+
+    Widget batchCard(int index) {
+      final batch = DiscoverUiMapper.toBatchData(_batches[index]);
+      return CommonBatchCard(
+        data: batch,
+        showAnalystProfile: false,
+        isSubscribed: _activePlanIds.contains(_batches[index].planId) ||
+            _batches[index].tiers.any(
+              (tier) => _activeBatchIds.contains(tier.id),
+            ),
+        onTap: () => context.push(
+          AppRoutingName.batchDetails,
+          extra: _batches[index].planId,
+        ),
+        onSubscribe: () => context.push(
+          AppRoutingName.subscriptions,
+          extra: SubscriptionPageArgs(
+            planId: _batches[index].planId,
+            analystId: _batches[index].analystId,
+          ),
+        ),
+      );
+    }
+
+    if (isWeb) {
+      return RefreshIndicator(
+        color: ColorConstants.brandBlue,
+        onRefresh: () => _loadProfile(silent: true),
+        child: _WebTwoColScroll(
+          itemCount: _batches.length,
+          itemBuilder: (_, index) => batchCard(index),
+        ),
+      );
+    }
+
     return RefreshIndicator(
       color: ColorConstants.brandBlue,
       onRefresh: () => _loadProfile(silent: true),
@@ -456,29 +529,9 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
         ),
         itemCount: _batches.length,
         itemBuilder: (context, index) {
-          final batch = DiscoverUiMapper.toBatchData(_batches[index]);
           return Padding(
             padding: EdgeInsets.only(bottom: AppSize.h(context, 18)),
-            child: CommonBatchCard(
-              data: batch,
-              showAnalystProfile: false,
-              isSubscribed:
-                  _activePlanIds.contains(_batches[index].planId) ||
-                  _batches[index].tiers.any(
-                    (tier) => _activeBatchIds.contains(tier.id),
-                  ),
-              onTap: () => context.push(
-                AppRoutingName.batchDetails,
-                extra: _batches[index].planId,
-              ),
-              onSubscribe: () => context.push(
-                AppRoutingName.subscriptions,
-                extra: SubscriptionPageArgs(
-                  planId: _batches[index].planId,
-                  analystId: _batches[index].analystId,
-                ),
-              ),
-            ),
+            child: batchCard(index),
           );
         },
       ),
@@ -486,7 +539,14 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
   }
 
   Widget _buildTrades() {
+    final bool isWeb = kIsWeb;
     if (_loadingTrades) {
+      if (isWeb) {
+        return _WebTwoColScroll(
+          itemCount: 4,
+          itemBuilder: (_, __) => const ShimmerTradeCard(),
+        );
+      }
       return ShimmerScope(
         child: ListView.builder(
           physics: const NeverScrollableScrollPhysics(),
@@ -500,9 +560,6 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
       );
     }
     if (_trades.isEmpty) {
-      // Only show the subscribe CTA when the user has no active subscription
-      // to any of this analyst's plans. If they are subscribed but there are
-      // no trades yet, show a neutral empty state instead.
       if (!_hasActiveSubscription) {
         String? priceLabel;
         if (_batches.isNotEmpty) {
@@ -521,6 +578,40 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
       }
       return const _EmptyList(message: 'No recent trades yet.');
     }
+
+    Widget tradeCard(int index) {
+      final trade = _trades[index];
+      return CommonTradingCard(
+        data: mapHomeTradeToCard(trade),
+        onViewDetails: () => context.push(
+          AppRoutingName.tradeDetails,
+          extra: trade,
+        ),
+      );
+    }
+
+    if (isWeb) {
+      return RefreshIndicator(
+        color: ColorConstants.brandBlue,
+        onRefresh: () => _loadProfile(silent: true),
+        child: _WebTwoColScroll(
+          controller: _tradesController,
+          itemCount: _trades.length + (_loadingMoreTrades ? 1 : 0),
+          itemBuilder: (context, index) {
+            if (index >= _trades.length) {
+              return const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              );
+            }
+            return tradeCard(index);
+          },
+        ),
+      );
+    }
+
     return RefreshIndicator(
       color: ColorConstants.brandBlue,
       onRefresh: () => _loadProfile(silent: true),
@@ -544,16 +635,9 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
               ),
             );
           }
-          final trade = _trades[index];
           return Padding(
             padding: EdgeInsets.only(bottom: AppSize.h(context, 12)),
-            child: CommonTradingCard(
-              data: mapHomeTradeToCard(trade),
-              onViewDetails: () => context.push(
-                AppRoutingName.tradeDetails,
-                extra: trade,
-              ),
-            ),
+            child: tradeCard(index),
           );
         },
       ),
@@ -564,6 +648,48 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
     final parts =
         name.trim().split(RegExp(r'\s+')).where((part) => part.isNotEmpty);
     return parts.take(2).map((part) => part[0].toUpperCase()).join();
+  }
+}
+
+/// Web-only: max 2 cards per row (same idea as Home trade feed).
+class _WebTwoColScroll extends StatelessWidget {
+  const _WebTwoColScroll({
+    required this.itemCount,
+    required this.itemBuilder,
+    this.controller,
+  });
+
+  final int itemCount;
+  final IndexedWidgetBuilder itemBuilder;
+  final ScrollController? controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final int rowCount = (itemCount + 1) ~/ 2;
+    return ListView.separated(
+      controller: controller,
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(20, 6, 20, 32),
+      itemCount: rowCount,
+      separatorBuilder: (_, _) =>
+          const SizedBox(height: WebTradeCardLayout.mainSpacing),
+      itemBuilder: (context, rowIndex) {
+        final int left = rowIndex * 2;
+        final int right = left + 1;
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Expanded(child: itemBuilder(context, left)),
+            const SizedBox(width: WebTradeCardLayout.crossSpacing),
+            Expanded(
+              child: right < itemCount
+                  ? itemBuilder(context, right)
+                  : const SizedBox.shrink(),
+            ),
+          ],
+        );
+      },
+    );
   }
 }
 
@@ -625,22 +751,29 @@ class _Stat extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bool isWeb = kIsWeb;
     return Expanded(
       child: Column(
         children: <Widget>[
           Text(
             value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
             style: TextStyleConstants.numeric.copyWith(
-              fontSize: AppSize.sp(context, 14),
+              fontSize: isWeb ? 15 : AppSize.sp(context, 14),
               fontWeight: FontWeight.w700,
               color: color,
             ),
           ),
-          SizedBox(height: AppSize.h(context, 2)),
+          SizedBox(height: isWeb ? 3 : AppSize.h(context, 2)),
           Text(
             label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
             style: TextStyleConstants.caption.copyWith(
-              fontSize: AppSize.sp(context, 10),
+              fontSize: isWeb ? 11 : AppSize.sp(context, 10),
               color: ColorConstants.mute,
             ),
           ),
