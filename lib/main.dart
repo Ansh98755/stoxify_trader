@@ -13,40 +13,8 @@ import 'core/widgets/no_network_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  try {
-    await configureDependencies();
-  } catch (error, stack) {
-    // Surface fatal startup errors instead of a blank white screen
-    // (common in release web when dart-defines are missing).
-    runApp(_BootstrapFailureApp(error: error, stack: stack));
-    return;
-  }
+  await configureDependencies();
   runApp(const MyApp());
-}
-
-/// Shown when DI / signer init fails so production isn't a silent white page.
-class _BootstrapFailureApp extends StatelessWidget {
-  const _BootstrapFailureApp({required this.error, required this.stack});
-
-  final Object error;
-  final StackTrace stack;
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      home: Scaffold(
-        body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: SelectableText(
-              'StoXify failed to start.\n\n$error\n\n$stack',
-              style: const TextStyle(fontSize: 13, height: 1.4),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 class MyApp extends StatelessWidget {
