@@ -10,6 +10,7 @@ import '../../../../core/shimmer/shimmer_widgets.dart';
 import '../../../../core/utils/app_size.dart';
 import '../../../../core/widgets/app_chrome.dart';
 import '../../../../core/widgets/app_screen_background.dart';
+import '../../../../core/widgets/common_app_notification_bar.dart';
 import '../../../../core/widgets/common_button_widget.dart';
 import '../../../../core/widgets/common_trading_card.dart';
 import '../../../../core/widgets/risk_badge.dart';
@@ -20,6 +21,8 @@ import '../../../discover/domain/repositories/discover_repository.dart';
 import '../../../home/domain/entities/home_subscription.dart';
 import '../../../home/domain/entities/home_trade.dart';
 import '../../../home/domain/repositories/home_repository.dart';
+import '../../../home/presentation/bloc/home_bloc.dart';
+import '../../../home/presentation/bloc/home_event.dart';
 import '../../../home/presentation/mappers/home_ui_mapper.dart';
 import '../../../subscriptions/presentation/pages/subscriptions_page.dart';
 
@@ -36,9 +39,12 @@ class _BatchDetailsPageState extends State<BatchDetailsPage> {
   final DiscoverRepository _discover =
       GetIt.instance<DiscoverRepository>();
   final HomeRepository _home = GetIt.instance<HomeRepository>();
+  final HomeBloc _homeBloc = GetIt.instance<HomeBloc>();
 
   DiscoverBatchModel? _plan;
   List<HomeTrade> _trades = const <HomeTrade>[];
+  Set<String> _savedTradeIds = const <String>{};
+  String? _savingTradeId;
   HomeSubscription? _subscription;
   // Starts true — set false once data is loaded or error occurs.
   // The 80ms delay in _showSpinnerAfterDelay will keep it true only
@@ -91,15 +97,18 @@ class _BatchDetailsPageState extends State<BatchDetailsPage> {
           status: 'LIVE,CLOSED',
         ),
         _home.fetchSubscriptions(),
+        _home.fetchSavedTradeIds(),
       ]);
       if (!mounted) return;
       final feed = results[0] as HomeFeedPage;
       final subscriptions = results[1] as List<HomeSubscription>;
+      final savedIds = results[2] as Set<String>;
       final matching = subscriptions.where((s) => s.planId == plan.planId);
       setState(() {
         _plan = plan;
         _trades =
             feed.trades.where((t) => t.planId == plan.planId).toList();
+        _savedTradeIds = savedIds;
         _subscription = matching.isEmpty ? null : matching.first;
         _loading = false;
         _error = null;
@@ -114,6 +123,76 @@ class _BatchDetailsPageState extends State<BatchDetailsPage> {
         });
       }
       // Otherwise silently fail — stale data stays on screen.
+    }
+  }
+
+  Future<void> _toggleSaved(String tradeId) async {
+    if (tradeId.isEmpty || _savingTradeId == tradeId) return;
+
+    final wasSaved = _savedTradeIds.contains(tradeId);
+    final optimistic = Set<String>.from(_savedTradeIds);
+    if (wasSaved) {
+      optimistic.remove(tradeId);
+    } else {
+      optimistic.add(tradeId);
+    }
+    setState(() {
+      _savedTradeIds = optimistic;
+      _savingTradeId = tradeId;
+    });
+
+    try {
+      final bool saved = wasSaved
+          ? await _home.unsaveTrade(tradeId)
+          : await _home.saveTrade(tradeId);
+      if (!mounted) return;
+
+      setState(() {
+        final next = Set<String>.from(_savedTradeIds);
+        if (saved) {
+          next.add(tradeId);
+        } else {
+          next.remove(tradeId);
+        }
+        _savedTradeIds = next;
+        _savingTradeId = null;
+      });
+
+      _homeBloc.add(HomeSavedTradeIdsUpdated(_savedTradeIds));
+
+      if (saved) {
+        await CommonAppNotificationBar.success(
+          context: context,
+          title: 'Trade saved',
+          message: 'Added to your saved trades.',
+          duration: const Duration(seconds: 2),
+        );
+      } else {
+        await CommonAppNotificationBar.error(
+          context: context,
+          title: 'Trade removed',
+          message: 'Removed from your saved trades.',
+        );
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        final rolledBack = Set<String>.from(_savedTradeIds);
+        if (wasSaved) {
+          rolledBack.add(tradeId);
+        } else {
+          rolledBack.remove(tradeId);
+        }
+        _savedTradeIds = rolledBack;
+        _savingTradeId = null;
+      });
+      await CommonAppNotificationBar.error(
+        context: context,
+        title: 'Error',
+        message: wasSaved
+            ? 'Failed to remove trade. Please try again.'
+            : 'Failed to save trade. Please try again.',
+      );
     }
   }
 
@@ -355,7 +434,13 @@ class _BatchDetailsPageState extends State<BatchDetailsPage> {
                       bottom: AppSize.h(context, 14),
                     ),
                     child: CommonTradingCard(
-                      data: mapHomeTradeToCard(trade),
+                      data: mapHomeTradeToCard(
+                        trade,
+                        savedIds: _savedTradeIds,
+                        onSaveTap: trade.id.isEmpty
+                            ? null
+                            : () => _toggleSaved(trade.id),
+                      ),
                       onViewDetails: () => context.push(
                         AppRoutingName.tradeDetails,
                         extra: trade,

@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import '../../../../core/constants/color_constants.dart';
 import '../../../../core/constants/text_style_constants.dart';
 import '../../../../core/di/injection.dart';
+import '../../../../core/notifications/notification_navigator.dart';
 import '../../../../core/shimmer/shimmer_widgets.dart';
 import '../../../../core/utils/app_size.dart';
 import '../../../../core/widgets/app_chrome.dart';
@@ -44,8 +45,7 @@ class _NotificationsViewState extends State<_NotificationsView> {
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
-    // Tell HomeBloc the user opened notifications — resets the red dot
-    // and fires markAllRead on the server via the existing event handler.
+    // Re-sync home red-dot from the live `read=false` API (never force-clear).
     getIt<HomeBloc>().add(const HomeNotificationsOpened());
   }
 
@@ -175,15 +175,21 @@ class _NotificationsViewState extends State<_NotificationsView> {
                               final notif = state.notifications[index];
                               return _NotificationCard(
                                 notification: notif,
-                                onTap: notif.read
-                                    ? null
-                                    : () => context
-                                        .read<NotificationsBloc>()
-                                        .add(
+                                onTap: () async {
+                                  if (!notif.read) {
+                                    context.read<NotificationsBloc>().add(
                                           NotificationsMarkReadRequested(
                                             notif.notificationId,
                                           ),
-                                        ),
+                                        );
+                                  }
+                                  await NotificationNavigator.openFromInbox(
+                                    type: notif.type,
+                                    relatedEntityType: notif.relatedEntityType,
+                                    relatedEntityId: notif.relatedEntityId,
+                                    payload: notif.payload,
+                                  );
+                                },
                               );
                             },
                           ),
@@ -352,6 +358,34 @@ _NotifStyle _styleFor(AppNotificationType type) {
     case AppNotificationType.tradeModified:
       return const _NotifStyle(
         icon: Icons.edit_rounded,
+        color: ColorConstants.amber,
+      );
+    case AppNotificationType.tradePriceUpdate:
+      return const _NotifStyle(
+        icon: Icons.show_chart_rounded,
+        color: ColorConstants.brandBlue,
+      );
+    case AppNotificationType.tradeValueOpportunity:
+    case AppNotificationType.tradeHighProfit:
+      return const _NotifStyle(
+        icon: Icons.trending_up_rounded,
+        color: ColorConstants.green,
+      );
+    case AppNotificationType.planCreated:
+    case AppNotificationType.batchCreated:
+      return const _NotifStyle(
+        icon: Icons.inventory_2_rounded,
+        color: ColorConstants.brandBlue,
+      );
+    case AppNotificationType.subscriptionActivated:
+      return const _NotifStyle(
+        icon: Icons.verified_rounded,
+        color: ColorConstants.green,
+      );
+    case AppNotificationType.subscriptionExpiring:
+    case AppNotificationType.subscriptionExpired:
+      return const _NotifStyle(
+        icon: Icons.timer_outlined,
         color: ColorConstants.amber,
       );
     case AppNotificationType.adminBroadcast:

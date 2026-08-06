@@ -176,7 +176,9 @@ class DiscoverBatchModel {
         analystId: json['analyst_id'] as String? ?? '',
         analystName: json['analyst_name'] as String? ?? 'Analyst',
         name: json['name'] as String? ?? 'Plan',
-        description: json['description'] as String?,
+        description: (json['description'] as String?) ??
+            (json['about'] as String?) ??
+            (json['about_batch'] as String?),
         price: (json['price'] as num?)?.toDouble() ?? 0,
         riskLevel: json['risk_level'] as String?,
         segments: _stringList(json['segments']),

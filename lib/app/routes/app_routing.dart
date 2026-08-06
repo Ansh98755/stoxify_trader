@@ -118,8 +118,10 @@ class AppRouting {
         name: AppRoutingName.advisorProfile,
         builder: (_, state) {
           final extra = state.extra;
+          final analystIdFromQuery = state.uri.queryParameters['analystId'];
           return AdvisorProfilePage(
-            analystId: extra is String ? extra : null,
+            analystId: analystIdFromQuery ??
+                (extra is String ? extra : null),
             initialProfile:
                 extra is DiscoverAnalystModel ? extra : null,
           );
@@ -128,25 +130,37 @@ class AppRouting {
       GoRoute(
         path: AppRoutingName.batchDetails,
         name: AppRoutingName.batchDetails,
-        builder: (_, state) => BatchDetailsPage(
-          planId: state.extra is String ? state.extra as String : null,
-        ),
+        builder: (_, state) {
+          final planIdFromQuery = state.uri.queryParameters['planId'];
+          return BatchDetailsPage(
+            planId: planIdFromQuery ??
+                (state.extra is String ? state.extra as String : null),
+          );
+        },
       ),
       GoRoute(
         path: AppRoutingName.tradeDetails,
-        builder: (context, state) => TradeDetailsPage(
-          trade: state.extra is HomeTrade ? state.extra as HomeTrade : null,
-        ),
+        builder: (context, state) {
+          final tradeId = state.uri.queryParameters['tradeId'];
+          return TradeDetailsPage(
+            trade: state.extra is HomeTrade ? state.extra as HomeTrade : null,
+            tradeId: tradeId,
+          );
+        },
       ),
       GoRoute(
         path: AppRoutingName.subscriptions,
         name: AppRoutingName.subscriptions,
         builder: (_, state) {
           final args = state.extra;
+          final q = state.uri.queryParameters;
           return SubscriptionsPage(
-            planId: args is SubscriptionPageArgs ? args.planId : null,
-            analystId: args is SubscriptionPageArgs ? args.analystId : null,
-            batchId: args is SubscriptionPageArgs ? args.batchId : null,
+            planId: q['planId'] ??
+                (args is SubscriptionPageArgs ? args.planId : null),
+            analystId: q['analystId'] ??
+                (args is SubscriptionPageArgs ? args.analystId : null),
+            batchId: q['batchId'] ??
+                (args is SubscriptionPageArgs ? args.batchId : null),
           );
         },
       ),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../constants/color_constants.dart';
 import '../utils/app_size.dart';
+import '../utils/responsive_layout.dart';
 import 'shimmer.dart';
 
 /// Skeleton that mirrors the shape of CommonTradingCard.
@@ -125,7 +126,8 @@ class ShimmerTradeCard extends StatelessWidget {
   }
 }
 
-/// A scrollable list of [ShimmerTradeCard]s wrapped in a [ShimmerScope].
+/// A scrollable list/grid of [ShimmerTradeCard]s wrapped in a [ShimmerScope].
+/// On web desktop, shows three cards per row (same as loaded trade grids).
 class ShimmerTradeList extends StatelessWidget {
   const ShimmerTradeList({super.key, this.count = 3, this.padding});
 
@@ -136,6 +138,25 @@ class ShimmerTradeList extends StatelessWidget {
   Widget build(BuildContext context) {
     final effectivePadding = padding ??
         AppSize.insets(context, left: 16, right: 16, top: 8, bottom: 16);
+
+    if (ResponsiveLayout.useWebDesktopShell(context)) {
+      const columns = 3;
+      return ShimmerScope(
+        child: GridView.builder(
+          physics: const NeverScrollableScrollPhysics(),
+          padding: effectivePadding,
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            mainAxisSpacing: 12,
+            crossAxisSpacing: 12,
+            mainAxisExtent: 230,
+          ),
+          itemCount: columns * 2,
+          itemBuilder: (context, index) => const ShimmerTradeCard(),
+        ),
+      );
+    }
+
     return ShimmerScope(
       child: SingleChildScrollView(
         physics: const NeverScrollableScrollPhysics(),

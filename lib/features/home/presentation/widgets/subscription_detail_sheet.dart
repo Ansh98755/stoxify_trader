@@ -216,18 +216,6 @@ class _SubscriptionDetailSheet extends StatelessWidget {
                     label: 'Auto-renew',
                     value: sub.autoRenew ? 'On' : 'Off',
                   ),
-                  if (sub.transactionId != null &&
-                      sub.transactionId!.isNotEmpty)
-                    _Row(
-                      label: 'Transaction ID',
-                      value: sub.transactionId!,
-                      mono: true,
-                    ),
-                  _Row(
-                    label: 'Subscription ID',
-                    value: sub.id,
-                    mono: true,
-                  ),
                 ],
               ),
             ),

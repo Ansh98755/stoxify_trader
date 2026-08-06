@@ -1,5 +1,8 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../../core/di/injection.dart';
+import '../../../home/presentation/bloc/home_bloc.dart';
+import '../../../home/presentation/bloc/home_event.dart';
 import '../../domain/entities/app_notification.dart';
 import '../../domain/repositories/notifications_repository.dart';
 import 'notifications_event.dart';
@@ -99,6 +102,8 @@ class NotificationsBloc
         return n.notificationId == event.notificationId ? fresh : n;
       }).toList();
       emit(state.copyWith(notifications: synced));
+      // Re-sync home red-dot from live `read=false` API.
+      getIt<HomeBloc>().add(const HomeNotificationsOpened());
     } catch (_) {
       // Rollback on failure.
       final rolledBack = state.notifications.map((n) {
@@ -123,6 +128,7 @@ class NotificationsBloc
 
     try {
       await _repository.markAllRead();
+      getIt<HomeBloc>().add(const HomeNotificationsOpened());
     } catch (_) {
       // Rollback.
       emit(state.copyWith(notifications: state.notifications));

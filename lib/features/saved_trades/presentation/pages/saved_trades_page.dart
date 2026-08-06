@@ -8,12 +8,10 @@ import '../../../../core/constants/text_style_constants.dart';
 import '../../../../core/di/injection.dart';
 import '../../../../core/shimmer/shimmer_widgets.dart';
 import '../../../../core/utils/app_size.dart';
-import '../../../../core/utils/responsive_layout.dart';
 import '../../../../core/widgets/app_chrome.dart';
 import '../../../../core/widgets/app_screen_background.dart';
 import '../../../../core/widgets/common_app_notification_bar.dart';
 import '../../../../core/widgets/common_trading_card.dart';
-import '../../../../core/widgets/web_trade_card_layout.dart';
 import '../../../../features/home/domain/repositories/home_repository.dart';
 import '../bloc/saved_trades_bloc.dart';
 import '../bloc/saved_trades_event.dart';
@@ -101,20 +99,6 @@ class _SavedTradesViewState extends State<_SavedTradesView> {
                       builder: (context, state) {
                         // Loading
                         if (state.isLoading) {
-                          if (isDesktopWeb(context)) {
-                            return CustomScrollView(
-                              physics: const AlwaysScrollableScrollPhysics(),
-                              slivers: <Widget>[
-                                WebTradeCardGridSliver(
-                                  padding: const EdgeInsets.fromLTRB(
-                                      16, 8, 16, 32),
-                                  itemCount: 4,
-                                  itemBuilder: (_, _) =>
-                                      const ShimmerTradeCard(),
-                                ),
-                              ],
-                            );
-                          }
                           return ShimmerTradeList(
                             count: 5,
                             padding: AppSize.insets(
@@ -147,7 +131,7 @@ class _SavedTradesViewState extends State<_SavedTradesView> {
                           );
                         }
 
-                        // List / grid
+                        // List
                         return RefreshIndicator(
                           color: ColorConstants.brandBlue,
                           onRefresh: () async {
@@ -160,73 +144,40 @@ class _SavedTradesViewState extends State<_SavedTradesView> {
                                 .stream
                                 .firstWhere((s) => !s.isRefreshing);
                           },
-                          child: isDesktopWeb(context)
-                              ? CustomScrollView(
-                                  physics:
-                                      const AlwaysScrollableScrollPhysics(),
-                                  slivers: <Widget>[
-                                    WebTradeCardGridSliver(
-                                      padding: const EdgeInsets.fromLTRB(
-                                          16, 8, 16, 32),
-                                      itemCount: state.cards.length,
-                                      itemBuilder: (context, index) {
-                                        final card = state.cards[index];
-                                        final trade = state.trades[index];
-                                        final tid = card.tradeId;
-                                        return CommonTradingCard(
-                                          data: card.copyWith(
-                                            isSaved: true,
-                                            onSaveTap: tid == null
-                                                ? null
-                                                : () => context
-                                                    .read<SavedTradesBloc>()
-                                                    .add(
-                                                        SavedTradeRemoved(tid)),
-                                          ),
-                                          onViewDetails: () => context.push(
-                                            AppRoutingName.tradeDetails,
-                                            extra: trade,
-                                          ),
-                                        );
-                                      },
-                                    ),
-                                  ],
-                                )
-                              : ListView.builder(
-                                  padding: AppSize.insets(
-                                    context,
-                                    left: 16,
-                                    right: 16,
-                                    bottom: 32,
-                                  ),
-                                  itemCount: state.cards.length,
-                                  itemBuilder: (context, index) {
-                                    final card = state.cards[index];
-                                    final trade = state.trades[index];
-                                    final tid = card.tradeId;
-                                    return Padding(
-                                      padding: EdgeInsets.only(
-                                        top: AppSize.h(context, 16),
-                                        bottom: AppSize.h(context, 4),
-                                      ),
-                                      child: CommonTradingCard(
-                                        data: card.copyWith(
-                                          isSaved: true,
-                                          onSaveTap: tid == null
-                                              ? null
-                                              : () => context
-                                                  .read<SavedTradesBloc>()
-                                                  .add(
-                                                      SavedTradeRemoved(tid)),
-                                        ),
-                                        onViewDetails: () => context.push(
-                                          AppRoutingName.tradeDetails,
-                                          extra: trade,
-                                        ),
-                                      ),
-                                    );
-                                  },
+                          child: ListView.builder(
+                            padding: AppSize.insets(
+                              context,
+                              left: 16,
+                              right: 16,
+                              bottom: 32,
+                            ),
+                            itemCount: state.cards.length,
+                            itemBuilder: (context, index) {
+                              final card = state.cards[index];
+                              final trade = state.trades[index];
+                              final tid = card.tradeId;
+                              return Padding(
+                                padding: EdgeInsets.only(
+                                  top: AppSize.h(context, 16),
+                                  bottom: AppSize.h(context, 4),
                                 ),
+                                child: CommonTradingCard(
+                                  data: card.copyWith(
+                                    isSaved: true,
+                                    onSaveTap: tid == null
+                                        ? null
+                                        : () => context
+                                            .read<SavedTradesBloc>()
+                                            .add(SavedTradeRemoved(tid)),
+                                  ),
+                                  onViewDetails: () => context.push(
+                                    AppRoutingName.tradeDetails,
+                                    extra: trade,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
                         );
                       },
                     ),

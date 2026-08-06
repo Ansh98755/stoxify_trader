@@ -6,7 +6,7 @@ import '../constants/color_constants.dart';
 import '../constants/text_style_constants.dart';
 import '../utils/app_size.dart';
 import 'tapered_divider.dart';
-import 'web_layout.dart';
+import 'trade_symbol_avatar.dart';
 
 /// Flutter equivalent of the Figma plugin's `tradeCard(d)` composition.
 ///
@@ -59,17 +59,15 @@ class CommonTradingCard extends StatelessWidget {
         if (!compact)
           Positioned(
             top: AppSize.h(context, 11),
-            right: AppSize.w(context,-4),
+            right: AppSize.w(context, -4),
             child: Semantics(
               button: true,
               selected: data.isSaved,
               label: data.isSaved ? 'Remove saved trade' : 'Save trade',
-              child: WebPointer(
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: data.onSaveTap,
-                  child: const _AnimatedBookmarkRibbon(),
-                ),
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: data.onSaveTap,
+                child: _AnimatedBookmarkRibbon(isSaved: data.isSaved),
               ),
             ),
           ),
@@ -77,7 +75,6 @@ class CommonTradingCard extends StatelessWidget {
     );
   }
 }
-
 
 class _CardBody extends StatelessWidget {
   const _CardBody({
@@ -98,6 +95,8 @@ class _CardBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final String statusText =
+        data.tradeStatus ?? (isLoss ? 'Closed in loss' : 'In profit');
     final String estGain = data.estGain ?? (isLoss ? '-6.00%' : '+18.00%');
     final String liveRet = data.liveRet ?? (isLoss ? '-1.00x' : '+3.86%');
 
@@ -123,10 +122,9 @@ class _CardBody extends StatelessWidget {
         ),
       ),
       clipBehavior: Clip.antiAlias,
-      child: WebPointer(
-        child: InkWell(
-          onTap: onViewDetails,
-          child: Padding(
+      child: InkWell(
+        onTap: onViewDetails,
+        child: Padding(
         padding: EdgeInsets.fromLTRB(
           AppSize.w(context, 12),
           topPadding,
@@ -134,7 +132,6 @@ class _CardBody extends StatelessWidget {
           AppSize.h(context, 12),
         ),
         child: Column(
-          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
             if (data.compact)
@@ -175,8 +172,9 @@ class _CardBody extends StatelessWidget {
             SizedBox(height: AppSize.h(context, 6)),
             _InstrumentRow(
               symbol: data.symbol,
-              // batchName: data.batchName ?? data.company,
-              /// here i'll implement the complete name thing for the trade like HDFC BANK PRIVATE LIMITED
+              companyName: data.company,
+              batchName: data.batchName,
+              logoUrl: data.logoUrl,
               px: px,
               change: change,
               isLoss: isLoss,
@@ -234,8 +232,7 @@ class _CardBody extends StatelessWidget {
           ],
         ),
       ),
-    ),
-    ),
+      ),
     );
   }
 }
@@ -243,31 +240,37 @@ class _CardBody extends StatelessWidget {
 class _InstrumentRow extends StatelessWidget {
   const _InstrumentRow({
     required this.symbol,
-    // required this.batchName,
+    this.companyName,
+    this.batchName,
+    this.logoUrl,
     required this.px,
     required this.change,
     required this.isLoss,
   });
 
   final String symbol;
-  // final String? batchName;
+  final String? companyName;
+  final String? batchName;
+  final String? logoUrl;
   final String px;
   final String change;
   final bool isLoss;
 
   @override
   Widget build(BuildContext context) {
-    final String s = symbol.trim();
-    final String initials =
-        s.isEmpty ? 'TM' : s.substring(0, s.length >= 2 ? 2 : 1).toUpperCase();
-    // final String batch = (batchName ?? '').trim().isEmpty
-    //     ? 'Batch'
-    //     : batchName!.trim();
+    final String batch = (batchName ?? '').trim().isEmpty
+        ? 'Batch'
+        : batchName!.trim();
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        _Avatar(initials: initials),
+        TradeSymbolAvatar(
+          symbol: symbol,
+          companyName: companyName,
+          logoUrl: logoUrl,
+          size: AppSize.r(context, 42),
+        ),
         SizedBox(width: AppSize.w(context, 10)),
         Expanded(
           child: Column(
@@ -285,13 +288,16 @@ class _InstrumentRow extends StatelessWidget {
                   ),
                 ),
               ),
-              Text(
-                "Complete Name",
-                style: TextStyleConstants.body.copyWith(
-                  fontSize: 10,
-                ),
-              )
-              // _AnimatedBatchLabel(batchName: batch),
+              ///Todo implementation of the complete trade name
+              // Padding(
+              //   padding: EdgeInsets.only(bottom: AppSize.h(context, 6)),
+              //   child: Text(
+              //     batch,
+              //     style: TextStyleConstants.body.copyWith(
+              //       fontSize: 10,
+              //     ),
+              //   ),
+              // ),
             ],
           ),
         ),
@@ -448,50 +454,6 @@ class _AnimatedBatchLabelState extends State<_AnimatedBatchLabel>
   }
 }
 
-class _Avatar extends StatelessWidget {
-  const _Avatar({required this.initials});
-
-  final String initials;
-
-  @override
-  Widget build(BuildContext context) {
-    final double size = AppSize.r(context, 42);
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: <Color>[
-            ColorConstants.avatarBlueStart,
-            ColorConstants.avatarBlueEnd,
-          ],
-        ),
-        boxShadow: <BoxShadow>[
-          BoxShadow(
-            color: ColorConstants.navy.withValues(alpha: 0.08),
-            blurRadius: AppSize.r(context, 12),
-            offset: Offset(0, AppSize.h(context, 4)),
-          ),
-        ],
-      ),
-      child: Center(
-        child: Text(
-          initials,
-          style: TextStyle(
-            fontFamily: TextStyleConstants.fontFamilyDisplay,
-            fontWeight: FontWeight.w600,
-            fontSize: AppSize.sp(context, 14),
-            color: ColorConstants.white,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 // class _StatusBand extends StatelessWidget {
 //   const _StatusBand({required this.text, required this.isLoss});
 //
@@ -586,12 +548,12 @@ class _TimelineLiveTag extends StatelessWidget {
           // SL maps to 0 and Target maps to 1. The same calculation works
           // for short trades because their price range is reversed.
           final double entryProgress = hasValidRange
-              ? ((entryValue - slValue) / (targetValue - slValue))
+              ? ((entryValue! - slValue!) / (targetValue! - slValue!))
                   .clamp(0.08, 0.88)
                   .toDouble()
               : 90 / 310;
           final double liveProgress = hasValidRange
-              ? ((liveValue - slValue) / (targetValue - slValue))
+              ? ((liveValue! - slValue!) / (targetValue! - slValue!))
                   .clamp(0.0, 1.0)
                   .toDouble()
               : entryProgress;
@@ -1270,7 +1232,9 @@ class _HangingGradientTag extends StatelessWidget {
 }
 
 class _AnimatedBookmarkRibbon extends StatefulWidget {
-  const _AnimatedBookmarkRibbon();
+  const _AnimatedBookmarkRibbon({required this.isSaved});
+
+  final bool isSaved;
 
   @override
   State<_AnimatedBookmarkRibbon> createState() =>
@@ -1287,7 +1251,25 @@ class _AnimatedBookmarkRibbonState extends State<_AnimatedBookmarkRibbon>
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2400),
-    )..repeat();
+    );
+    _syncAnimation();
+  }
+
+  @override
+  void didUpdateWidget(covariant _AnimatedBookmarkRibbon oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isSaved != widget.isSaved) {
+      _syncAnimation();
+    }
+  }
+
+  void _syncAnimation() {
+    if (widget.isSaved) {
+      _controller.stop();
+      _controller.value = 0;
+    } else if (!_controller.isAnimating) {
+      _controller.repeat();
+    }
   }
 
   @override
@@ -1298,14 +1280,28 @@ class _AnimatedBookmarkRibbonState extends State<_AnimatedBookmarkRibbon>
 
   @override
   Widget build(BuildContext context) {
+    final double size = AppSize.r(context, 32);
+    final Widget icon = Image.asset(
+      AssetConstants.bookmarkIcon,
+      width: size,
+      height: size,
+      fit: BoxFit.contain,
+    );
+
+    // Same asset for both states — solid brand tint when saved.
+    if (widget.isSaved) {
+      return ColorFiltered(
+        colorFilter: const ColorFilter.mode(
+          ColorConstants.brandBlue,
+          BlendMode.srcIn,
+        ),
+        child: icon,
+      );
+    }
+
     return AnimatedBuilder(
       animation: _controller,
-      child: Image.asset(
-        AssetConstants.bookmarkIcon,
-        width: AppSize.r(context, 32),
-        height: AppSize.r(context, 32),
-        fit: BoxFit.contain,
-      ),
+      child: icon,
       builder: (BuildContext context, Widget? child) {
         final double sweep = (_controller.value * 2.4) - 1.2;
         return ShaderMask(

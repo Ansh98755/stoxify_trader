@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -86,6 +87,11 @@ class _LoginViewState extends State<_LoginView> {
               if (otp != null && otp.length == 6) {
                 context.read<LoginBloc>().add(LoginOtpSubmitted(otp));
               } else {
+                // Cross / dismiss — always leave loading & OTP-active cleanly.
+                context.read<LoginBloc>().add(const LoginOtpEntryClosed());
+              }
+            } catch (_) {
+              if (context.mounted) {
                 context.read<LoginBloc>().add(const LoginOtpEntryClosed());
               }
             } finally {
@@ -153,111 +159,24 @@ class _LoginViewState extends State<_LoginView> {
                           buildWhen: (previous, current) =>
                               previous.phoneNumber != current.phoneNumber,
                           builder: (BuildContext context, LoginState state) {
-                            return AnimatedContainer(
-                              duration: const Duration(milliseconds: 200),
-                              height: 48,
-                              decoration: BoxDecoration(
-                                color: ColorConstants.white,
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(
-                                  color: _phoneFocusNode.hasFocus
-                                      ? ColorConstants.brandBlue
-                                      : ColorConstants.line,
-                                  width: _phoneFocusNode.hasFocus ? 1.5 : 1,
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: ColorConstants.navy.withValues(
-                                      alpha: 0.08,
-                                    ),
-                                    blurRadius: 12,
-                                    offset: const Offset(0, 4),
-                                  ),
-                                ],
-                              ),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 16),
-                                child: Row(
-                                  crossAxisAlignment: CrossAxisAlignment.center,
-                                  children: [
-                                    Text(
-                                      '+91',
-                                      style: TextStyleConstants.bodyMedium.copyWith(
-                                        color: ColorConstants.ink,
-                                        fontWeight: FontWeight.w600,
-                                        height: 1,
-                                      ),
-                                    ),
-
-                                    const SizedBox(width: 6),
-
-                                    Container(
-                                      width: 1,
-                                      height: 18,
-                                      color: ColorConstants.navy.withValues(
-                                        alpha: 0.7,
-                                      ),
-                                    ),
-
-                                    const SizedBox(width: 6),
-
-                                    Expanded(
-                                      child: TextFormField(
-                                        controller: _phoneController,
-                                        focusNode: _phoneFocusNode,
-                                        keyboardType: TextInputType.phone,
-                                        cursorColor: ColorConstants.brandBlue,
-                                        cursorWidth: 2,
-                                        cursorHeight: 18,
-                                        minLines: null,
-                                        maxLines: null,
-                                        expands: true,
-                                        textAlignVertical: TextAlignVertical.center,
-                                        style: TextStyleConstants.bodyMedium
-                                            .copyWith(
-                                              color: ColorConstants.ink,
-                                              height: 1,
-                                            ),
-                                        inputFormatters: [
-                                          FilteringTextInputFormatter.digitsOnly,
-                                          LengthLimitingTextInputFormatter(10),
-                                        ],
-                                        decoration: InputDecoration(
-                                          isCollapsed: true,
-                                          hintText: '98765 43210',
-                                          hintStyle: TextStyleConstants.bodyMedium
-                                              .copyWith(
-                                                color: ColorConstants.ink
-                                                    .withValues(alpha: 0.32),
-                                                height: 1,
-                                              ),
-                                          border: InputBorder.none,
-                                          enabledBorder: InputBorder.none,
-                                          focusedBorder: InputBorder.none,
-                                          disabledBorder: InputBorder.none,
-                                          errorBorder: InputBorder.none,
-                                          focusedErrorBorder: InputBorder.none,
-                                          contentPadding: EdgeInsets.zero,
-                                        ),
-                                        onChanged: (String value) {
-                                          context.read<LoginBloc>().add(
-                                            LoginPhoneChanged(value),
-                                          );
-                                        },
-                                        onTapOutside: (_) =>
-                                            _phoneFocusNode.unfocus(),
-                                        onFieldSubmitted: (_) {
-                                          if (state.isPhoneValid &&
-                                              !state.isSubmitting) {
-                                            context.read<LoginBloc>().add(
-                                              const LoginSubmitted(),
-                                            );
-                                          }
-                                        },
-                                      ),
-                                    ),
-                                  ],
-                                ),
+                            return _PhoneInputShell(
+                              focused: _phoneFocusNode.hasFocus,
+                              child: _PhoneInputRow(
+                                controller: _phoneController,
+                                focusNode: _phoneFocusNode,
+                                onChanged: (String value) {
+                                  context.read<LoginBloc>().add(
+                                        LoginPhoneChanged(value),
+                                      );
+                                },
+                                onSubmitted: () {
+                                  if (state.isPhoneValid &&
+                                      !state.isSubmitting) {
+                                    context.read<LoginBloc>().add(
+                                          const LoginSubmitted(),
+                                        );
+                                  }
+                                },
                               ),
                             );
                           },
@@ -288,13 +207,14 @@ class _LoginViewState extends State<_LoginView> {
             ),
 
             // ── Full-screen loader overlay ──────────────────────────────────
-            // Shown while isSubmitting (OTP request in flight).
-            // Absorbs all pointer events so the UI is non-interactive.
+            // Only while a network call is in flight (send OTP / verify OTP).
+            // Do NOT gate on isOtpEntryActive — that left a stuck spinner when
+            // the OTP dialog was dismissed (buildWhen only watched isSubmitting).
             BlocBuilder<LoginBloc, LoginState>(
               buildWhen: (previous, current) =>
                   previous.isSubmitting != current.isSubmitting,
               builder: (BuildContext context, LoginState state) {
-                if (!state.isSubmitting && !state.isOtpEntryActive) {
+                if (!state.isSubmitting) {
                   return const SizedBox.shrink();
                 }
                 return const Positioned.fill(
@@ -368,3 +288,147 @@ class _LoginHero extends StatelessWidget {
     );
   }
 }
+
+/// Phone field chrome: fixed height, content truly centered (not top-stuck).
+class _PhoneInputShell extends StatelessWidget {
+  const _PhoneInputShell({
+    required this.focused,
+    required this.child,
+  });
+
+  final bool focused;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      height: 48,
+      decoration: BoxDecoration(
+        color: ColorConstants.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: focused ? ColorConstants.brandBlue : ColorConstants.line,
+          width: focused ? 1.5 : 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: ColorConstants.navy.withValues(alpha: 0.08),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      // Center (not alignment on a tall expanding child) so +91 / hint share
+      // the same vertical middle of the 48px pill.
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+class _PhoneInputRow extends StatelessWidget {
+  const _PhoneInputRow({
+    required this.controller,
+    required this.focusNode,
+    required this.onChanged,
+    required this.onSubmitted,
+  });
+
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final ValueChanged<String> onChanged;
+  final VoidCallback onSubmitted;
+
+  static const double _fontSize = 14;
+
+  @override
+  Widget build(BuildContext context) {
+    final TextStyle textStyle = TextStyleConstants.bodyMedium.copyWith(
+      color: ColorConstants.ink,
+      fontWeight: FontWeight.w500,
+      fontSize: _fontSize,
+      height: 1.0,
+      leadingDistribution: TextLeadingDistribution.even,
+    );
+    final TextStyle hintStyle = textStyle.copyWith(
+      color: ColorConstants.ink.withValues(alpha: 0.32),
+    );
+    const StrutStyle strut = StrutStyle(
+      fontSize: _fontSize,
+      height: 1.0,
+      forceStrutHeight: true,
+      leadingDistribution: TextLeadingDistribution.even,
+    );
+
+    final Widget field = TextField(
+      controller: controller,
+      focusNode: focusNode,
+      keyboardType: TextInputType.phone,
+      maxLines: 1,
+      style: textStyle,
+      strutStyle: strut,
+      textAlignVertical: TextAlignVertical.center,
+      cursorColor: ColorConstants.brandBlue,
+      cursorWidth: 2,
+      cursorHeight: _fontSize,
+      inputFormatters: <TextInputFormatter>[
+        FilteringTextInputFormatter.digitsOnly,
+        LengthLimitingTextInputFormatter(10),
+      ],
+      decoration: InputDecoration(
+        hintText: '98765 43210',
+        hintStyle: hintStyle,
+        isDense: true,
+        isCollapsed: true,
+        filled: false,
+        fillColor: ColorConstants.transparent,
+        contentPadding: EdgeInsets.zero,
+        border: InputBorder.none,
+        enabledBorder: InputBorder.none,
+        focusedBorder: InputBorder.none,
+        disabledBorder: InputBorder.none,
+        errorBorder: InputBorder.none,
+        focusedErrorBorder: InputBorder.none,
+      ),
+      onChanged: onChanged,
+      onSubmitted: (_) => onSubmitted(),
+      onTapOutside: (_) => focusNode.unfocus(),
+    );
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: <Widget>[
+        Text(
+          '+91',
+          style: textStyle.copyWith(fontWeight: FontWeight.w600),
+          strutStyle: strut,
+        ),
+        const SizedBox(width: 6),
+        Container(
+          width: 1,
+          height: _fontSize,
+          color: ColorConstants.navy.withValues(alpha: 0.7),
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: SizedBox(
+            height: 20,
+            // Web TextField sits a bit high vs +91; nudge slightly down.
+            child: kIsWeb
+                ? Transform.translate(
+                    offset: const Offset(0, -1),
+                    child: field,
+                  )
+                : field,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+

@@ -1,3 +1,4 @@
+﻿import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../../../../core/constants/asset_constants.dart';
@@ -16,7 +17,7 @@ class DiscoverAnalystData {
     required this.subtitle,
     required this.winRate,
     required this.avgPnl,
-    required this.subscribers,
+    required this.experienceYears,
     required this.tags,
     required this.avatarStart,
     required this.avatarEnd,
@@ -31,12 +32,13 @@ class DiscoverAnalystData {
   final String? profilePicUrl;
   final String winRate;
   final String avgPnl;
-  final String subscribers;
+  final String experienceYears;
   final List<String> tags;
   final Color avatarStart;
   final Color avatarEnd;
 }
 
+/// Original hanging-tag analyst card (tags sit on the top edge of the white body).
 class DiscoverAnalystCard extends StatelessWidget {
   const DiscoverAnalystCard({
     required this.data,
@@ -52,7 +54,9 @@ class DiscoverAnalystCard extends StatelessWidget {
     final bool pnlNegative = data.avgPnl.startsWith('-');
     final radius = AppSize.r(context, 16);
     final hasTags = data.tags.isNotEmpty;
-    final wrapperTop = hasTags ? AppSize.h(context, 14) : 0.0;
+    // Always reserve the hanging-tag strip so grid cards stay level even
+    // when some analysts have no segments.
+    final wrapperTop = AppSize.h(context, 14);
 
     return Stack(
       clipBehavior: Clip.none,
@@ -91,6 +95,7 @@ class DiscoverAnalystCard extends StatelessWidget {
                     bottom: 14,
                   ),
                   child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
                       Row(
@@ -109,11 +114,14 @@ class DiscoverAnalystCard extends StatelessWidget {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: <Widget>[
                                 Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
                                   children: <Widget>[
                                     Expanded(
                                       child: Text(
                                         data.name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
                                         style: TextStyleConstants.cardTitle
                                             .copyWith(
                                           fontSize: AppSize.sp(context, 16),
@@ -128,9 +136,10 @@ class DiscoverAnalystCard extends StatelessWidget {
                                   ],
                                 ),
                                 if (data.subtitle.isNotEmpty) ...<Widget>[
-                                  // SizedBox(height: AppSize.h(context, 5)),
                                   Text(
                                     data.subtitle,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                     style:
                                         TextStyleConstants.bodyMedium.copyWith(
                                       fontSize: AppSize.sp(context, 12.5),
@@ -143,8 +152,9 @@ class DiscoverAnalystCard extends StatelessWidget {
                                   SizedBox(height: AppSize.h(context, 4)),
                                   Text(
                                     data.sebi!,
-                                    style:
-                                        TextStyleConstants.caption.copyWith(
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyleConstants.caption.copyWith(
                                       fontSize: AppSize.sp(context, 11),
                                       fontWeight: FontWeight.w600,
                                       color: ColorConstants.brandBlue,
@@ -186,8 +196,8 @@ class DiscoverAnalystCard extends StatelessWidget {
                           ),
                           _MetricDivider(),
                           _MetricCell(
-                            value: data.subscribers,
-                            label: 'Subscribers',
+                            value: data.experienceYears,
+                            label: 'Yrs experience',
                             valueColor: ColorConstants.ink,
                             iconAsset:
                                 AssetConstants.subscribersAnalystCard,
@@ -250,6 +260,9 @@ class _Avatar extends StatelessWidget {
               ? Image.network(
                   imageUrl!,
                   fit: BoxFit.cover,
+                  webHtmlElementStrategy: kIsWeb
+                      ? WebHtmlElementStrategy.fallback
+                      : WebHtmlElementStrategy.never,
                   errorBuilder: (_, _, _) => _AvatarInitials(
                     initials: initials,
                     size: size,
@@ -328,6 +341,7 @@ class _MetricCell extends StatelessWidget {
   Widget build(BuildContext context) {
     return Expanded(
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: <Widget>[
           Image.asset(
             iconAsset,
@@ -341,6 +355,8 @@ class _MetricCell extends StatelessWidget {
           SizedBox(height: AppSize.h(context, 4)),
           Text(
             value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: TextStyleConstants.numeric.copyWith(
               fontSize: AppSize.sp(context, 15),
               fontWeight: FontWeight.w700,
@@ -351,6 +367,8 @@ class _MetricCell extends StatelessWidget {
           Text(
             label,
             textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: TextStyleConstants.caption.copyWith(
               fontSize: AppSize.sp(context, 10),
               fontWeight: FontWeight.w600,

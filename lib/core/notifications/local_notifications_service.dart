@@ -1,0 +1,200 @@
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+
+import '../platform/app_platform.dart';
+import 'push_payload.dart';
+
+/// Shows foreground OS banners with the custom StoXify chime sound.
+///
+/// Sound asset names (must match native files):
+/// - Android: `res/raw/notification_chime.wav` → sound `notification_chime`
+/// - iOS: `Runner/notification_chime.wav` → sound `notification_chime.wav`
+///
+/// No-op early exit on web only — mobile path is unchanged.
+class LocalNotificationsService {
+  LocalNotificationsService._();
+
+  static final FlutterLocalNotificationsPlugin _plugin =
+      FlutterLocalNotificationsPlugin();
+
+  static const String channelId = 'stoxify_alerts';
+  static const String channelName = 'StoXify Alerts';
+  static const String channelDescription =
+      'Trades, subscriptions, and market price alerts';
+
+  /// Filename without extension for Android raw resource.
+  static const String androidSoundName = 'notification_chime';
+
+  /// Full filename for iOS bundle sound.
+  static const String iosSoundName = 'notification_chime.wav';
+
+  static bool _ready = false;
+  static void Function(PushPayload payload)? onSelect;
+
+  static Future<void> initialize({
+    required void Function(PushPayload payload) onNotificationTap,
+  }) async {
+    if (kIsWeb) return;
+    if (_ready) return;
+    onSelect = onNotificationTap;
+
+    const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const iosInit = DarwinInitializationSettings(
+      requestAlertPermission: false,
+      requestBadgePermission: false,
+      requestSoundPermission: false,
+    );
+
+    await _plugin.initialize(
+      const InitializationSettings(android: androidInit, iOS: iosInit),
+      onDidReceiveNotificationResponse: _onResponse,
+      onDidReceiveBackgroundNotificationResponse: notificationTapBackground,
+    );
+
+    if (AppPlatform.isAndroid) {
+      final android = _plugin.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
+      await android?.createNotificationChannel(
+        const AndroidNotificationChannel(
+          channelId,
+          channelName,
+          description: channelDescription,
+          importance: Importance.high,
+          playSound: true,
+          sound: RawResourceAndroidNotificationSound(androidSoundName),
+          enableVibration: true,
+        ),
+      );
+      await android?.requestNotificationsPermission();
+    }
+
+    _ready = true;
+  }
+
+  static void _onResponse(NotificationResponse response) {
+    final payload = _payloadFromString(response.payload);
+    if (payload != null) onSelect?.call(payload);
+  }
+
+  static PushPayload? _payloadFromString(String? raw) {
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final map = jsonDecode(raw);
+      if (map is Map) {
+        return PushPayload.fromMap(map.cast<String, dynamic>());
+      }
+    } catch (e) {
+      debugPrint('[FCM] local payload decode failed: $e');
+    }
+    return null;
+  }
+
+  /// If the app was launched by tapping a local notification.
+  static Future<PushPayload?> getLaunchPayload() async {
+    if (kIsWeb || !_ready) return null;
+    final details = await _plugin.getNotificationAppLaunchDetails();
+    if (details?.didNotificationLaunchApp != true) return null;
+    return _payloadFromString(details!.notificationResponse?.payload);
+  }
+
+  static Future<void> showFromPush(PushPayload payload) async {
+    if (kIsWeb || !_ready) return;
+
+    final title = payload.title?.isNotEmpty == true
+        ? payload.title!
+        : _defaultTitle(payload.type);
+    final body = _composeBody(payload);
+
+    final androidDetails = AndroidNotificationDetails(
+      channelId,
+      channelName,
+      channelDescription: channelDescription,
+      importance: Importance.high,
+      priority: Priority.high,
+      playSound: true,
+      sound: const RawResourceAndroidNotificationSound(androidSoundName),
+      tag: payload.androidTag,
+      icon: '@mipmap/ic_launcher',
+      styleInformation: BigTextStyleInformation(body),
+    );
+
+    const iosDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+      sound: iosSoundName,
+    );
+
+    final id = payload.notificationId?.hashCode.abs() ??
+        payload.androidTag.hashCode.abs() % 1000000;
+
+    await _plugin.show(
+      id,
+      title,
+      body,
+      NotificationDetails(android: androidDetails, iOS: iosDetails),
+      payload: jsonEncode(payload.toLocalPayload()),
+    );
+  }
+
+  static String _defaultTitle(String type) {
+    switch (type.toUpperCase()) {
+      case PushTypes.tradeCreated:
+      case PushTypes.subscribedAnalystTrade:
+        return 'New trade';
+      case PushTypes.tradePriceUpdate:
+        return 'Price update';
+      case PushTypes.tradeHighProfit:
+        return 'Strong move';
+      case PushTypes.tradeValueOpportunity:
+        return 'Opportunity';
+      case PushTypes.planCreated:
+        return 'New plan';
+      case PushTypes.batchCreated:
+        return 'New batch';
+      case PushTypes.subscriptionActivated:
+        return 'Subscription active';
+      case PushTypes.subscriptionExpiring:
+        return 'Subscription expiring';
+      case PushTypes.subscriptionExpired:
+        return 'Subscription expired';
+      default:
+        return 'StoXify';
+    }
+  }
+
+  static String _composeBody(PushPayload payload) {
+    final base = payload.body?.trim();
+    final parts = <String>[];
+    if (base != null && base.isNotEmpty) parts.add(base);
+
+    final symbol = payload.symbol;
+    final ltp = payload.ltp;
+    final change = payload.changePct;
+    if (symbol != null || ltp != null || change != null) {
+      final priceBits = <String>[];
+      if (symbol != null) priceBits.add(symbol);
+      if (ltp != null) priceBits.add('LTP ₹$ltp');
+      if (change != null) {
+        final signed = change.startsWith('+') || change.startsWith('-')
+            ? change
+            : '+$change';
+        priceBits.add('$signed%');
+      }
+      final line = priceBits.join(' · ');
+      if (parts.isEmpty || !(parts.last.contains(line))) {
+        parts.add(line);
+      }
+    }
+
+    return parts.isEmpty ? 'Open StoXify for details.' : parts.join('\n');
+  }
+}
+
+@pragma('vm:entry-point')
+void notificationTapBackground(NotificationResponse response) {
+  // Tap while app in background is handled when process resumes via
+  // getNotificationAppLaunchDetails / onDidReceiveNotificationResponse.
+}

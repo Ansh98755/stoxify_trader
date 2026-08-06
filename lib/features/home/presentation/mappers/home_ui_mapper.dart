@@ -110,8 +110,79 @@ String? mapFilterSegmentToApi(String segment) {
       return 'EQUITY';
     case 'F&O':
       return 'FNO';
+    case 'Commodity':
+      return 'COMMODITY';
     default:
       // Intraday/Swing/Long-term are category filters — applied client-side.
       return null;
   }
 }
+
+/// Display label for a trade facet value (e.g. EQUITY → Equity).
+String formatTradeFacetLabel(String value) {
+  final upper = value.trim().toUpperCase();
+  switch (upper) {
+    case 'FNO':
+      return 'F&O';
+    case 'EQUITY':
+      return 'Equity';
+    case 'COMMODITY':
+      return 'Commodity';
+    case 'LIVE':
+      return 'Live';
+    case 'CLOSED_BY_TARGET':
+      return 'Closed by target';
+    case 'CLOSED_BY_SL':
+      return 'Closed by SL';
+    case 'MANUALLY_CLOSED':
+      return 'Manually closed';
+    case 'INTRADAY':
+      return 'Intraday';
+    case 'SWING':
+      return 'Swing';
+    case 'POSITIONAL':
+    case 'LONG_TERM':
+      return 'Long-term';
+    case 'BTST':
+      return 'BTST';
+    default:
+      return value
+          .toLowerCase()
+          .split('_')
+          .where((part) => part.isNotEmpty)
+          .map(
+            (part) =>
+                '${part[0].toUpperCase()}${part.substring(1)}',
+          )
+          .join(' ');
+  }
+}
+
+/// Join multi-selected API facet values for query params (comma-separated).
+String? joinFilterValues(Set<String> values) {
+  final cleaned = values
+      .map((v) => v.trim().toUpperCase())
+      .where((v) => v.isNotEmpty && v != 'ALL')
+      .toList();
+  if (cleaned.isEmpty) return null;
+  return cleaned.join(',');
+}
+
+/// Default home status when none selected — live recommendations only.
+String resolveFeedStatus(Set<String> statuses) {
+  final joined = joinFilterValues(statuses);
+  return joined ?? 'LIVE';
+}
+
+bool isLiveOnlyStatusFilter(Set<String> statuses) {
+  if (statuses.isEmpty) return true;
+  return statuses.every((s) {
+    final upper = s.trim().toUpperCase();
+    return upper == 'LIVE' ||
+        upper == 'ACTIVE' ||
+        upper == 'OPEN' ||
+        upper == 'PUBLISHED' ||
+        upper == 'RUNNING';
+  });
+}
+

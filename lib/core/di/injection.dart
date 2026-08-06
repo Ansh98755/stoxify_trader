@@ -21,7 +21,9 @@ import '../network/api_client.dart';
 import '../network/device_id.dart';
 import '../network/request_signer.dart';
 import '../network/websocket_service.dart';
+import '../notifications/push_token_api.dart';
 import '../services/live_prices_service.dart';
+import '../services/trade_icon_service.dart';
 import '../storage/secure_storage.dart';
 
 final GetIt getIt = GetIt.instance;
@@ -46,6 +48,7 @@ Future<void> configureDependencies({
     ..registerSingleton<DeviceIdProvider>(deviceIds)
     ..registerSingleton<RequestSigner>(signer)
     ..registerSingleton<Dio>(dio)
+    ..registerLazySingleton<PushTokenApi>(() => PushTokenApi(getIt<Dio>()))
     ..registerLazySingleton<AuthRepository>(
       () => AuthRepositoryImpl(dio: getIt<Dio>(), storage: getIt<SecureStorage>()),
     )
@@ -57,6 +60,9 @@ Future<void> configureDependencies({
     )
     ..registerLazySingleton<MarketDataRemoteDataSource>(
       () => MarketDataRemoteDataSource(getIt<Dio>()),
+    )
+    ..registerLazySingleton<TradeIconService>(
+      () => TradeIconService(getIt<MarketDataRemoteDataSource>()),
     )
     ..registerLazySingleton<WebSocketService>(
       () => WebSocketService(

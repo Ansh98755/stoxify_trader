@@ -9,7 +9,7 @@ class HomeSearchRow extends StatelessWidget {
   const HomeSearchRow({
     super.key,
     this.controller,
-    this.hintText = 'Search research or analysts',
+    this.hintText = 'Search Trades',
     this.onChanged,
     this.onFilterTap,
     this.hasActiveFilters = false,
@@ -76,17 +76,25 @@ class HomeSearchRow extends StatelessWidget {
                         ),
                       ),
                     ),
-                    if (controller != null && controller!.text.isNotEmpty)
-                      GestureDetector(
-                        onTap: () {
-                          controller!.clear();
-                          onChanged?.call('');
+                    if (controller != null)
+                      ListenableBuilder(
+                        listenable: controller!,
+                        builder: (context, _) {
+                          if (controller!.text.isEmpty) {
+                            return const SizedBox.shrink();
+                          }
+                          return GestureDetector(
+                            onTap: () {
+                              controller!.clear();
+                              onChanged?.call('');
+                            },
+                            child: Icon(
+                              Icons.close_rounded,
+                              size: AppSize.r(context, 16),
+                              color: ColorConstants.soft,
+                            ),
+                          );
                         },
-                        child: Icon(
-                          Icons.close_rounded,
-                          size: AppSize.r(context, 16),
-                          color: ColorConstants.soft,
-                        ),
                       ),
                   ],
                 ),

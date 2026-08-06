@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
 import 'package:go_router/go_router.dart';
@@ -5,6 +8,8 @@ import 'package:go_router/go_router.dart';
 import '../../../../app/routes/app_routing_name.dart';
 import '../../../../core/constants/color_constants.dart';
 import '../../../../core/constants/text_style_constants.dart';
+import '../../../../core/network/websocket_service.dart';
+import '../../../../core/services/live_prices_service.dart';
 import '../../../../core/shimmer/shimmer_widgets.dart';
 import '../../../../core/utils/app_size.dart';
 import '../../../../core/utils/responsive_layout.dart';
@@ -13,7 +18,6 @@ import '../../../../core/widgets/common_batch_card.dart';
 import '../../../../core/widgets/common_button_widget.dart';
 import '../../../../core/widgets/common_trading_card.dart';
 import '../../../../core/widgets/sebi_verified_pill.dart';
-import '../../../../core/widgets/web_trade_card_layout.dart';
 import '../../../discover/data/models/discover_analyst_model.dart';
 import '../../../discover/data/models/discover_batch_model.dart';
 import '../../../discover/domain/repositories/discover_repository.dart';
@@ -21,8 +25,11 @@ import '../../../discover/presentation/mappers/discover_ui_mapper.dart';
 import '../../../home/domain/entities/home_trade.dart';
 import '../../../home/domain/entities/home_subscription.dart';
 import '../../../home/domain/repositories/home_repository.dart';
+import '../../../home/presentation/bloc/home_bloc.dart';
+import '../../../home/presentation/bloc/home_event.dart';
 import '../../../home/presentation/mappers/home_ui_mapper.dart';
 import '../../../subscriptions/presentation/pages/subscriptions_page.dart';
+import '../../../../core/widgets/common_app_notification_bar.dart';
 
 class AdvisorProfilePage extends StatefulWidget {
   const AdvisorProfilePage({
@@ -42,12 +49,18 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
   final DiscoverRepository _discoverRepository =
       GetIt.instance<DiscoverRepository>();
   final HomeRepository _homeRepository = GetIt.instance<HomeRepository>();
+  final HomeBloc _homeBloc = GetIt.instance<HomeBloc>();
+  final LivePricesService _livePrices = GetIt.instance<LivePricesService>();
+  final WebSocketService _webSocket = GetIt.instance<WebSocketService>();
   final ScrollController _tradesController = ScrollController();
+  StreamSubscription<Map<String, double>>? _pricesSubscription;
 
   DiscoverAnalystModel? _profile;
   double? _discoverWinRate;
   List<DiscoverBatchModel> _batches = const <DiscoverBatchModel>[];
   List<HomeTrade> _trades = const <HomeTrade>[];
+  Set<String> _savedTradeIds = const <String>{};
+  String? _savingTradeId;
   bool _hasActiveSubscription = false;
   Set<String> _activePlanIds = const <String>{};
   Set<String> _activeBatchIds = const <String>{};
@@ -72,6 +85,9 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
   void initState() {
     super.initState();
     _tradesController.addListener(_onTradesScroll);
+    _livePrices.start();
+    unawaited(_webSocket.connect());
+    _pricesSubscription = _livePrices.pricesStream.listen(_applyLivePrices);
     // If we already have initialProfile, seed it immediately so the screen
     // renders without a spinner while background data loads.
     if (widget.initialProfile != null) {
@@ -87,10 +103,57 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
 
   @override
   void dispose() {
+    _pricesSubscription?.cancel();
     _tradesController
       ..removeListener(_onTradesScroll)
       ..dispose();
     super.dispose();
+  }
+
+  void _trackLiveSymbols(Iterable<HomeTrade> trades) {
+    final symbols = <String>{};
+    for (final trade in trades) {
+      if (!trade.state.isLive) continue;
+      symbols.addAll(
+        trade.symbol
+            .split(' / ')
+            .map((symbol) => symbol.trim())
+            .where((symbol) => symbol.isNotEmpty),
+      );
+    }
+    _livePrices.trackAdditional(symbols);
+  }
+
+  List<HomeTrade> _mergeLivePrices(
+    List<HomeTrade> trades,
+    Map<String, double> prices,
+  ) {
+    if (prices.isEmpty) return trades;
+    return trades.map((trade) {
+      if (!trade.state.isLive) return trade;
+      double? price = prices[trade.symbol];
+      if (price == null && trade.symbol.contains(' / ')) {
+        price = prices[trade.symbol.split(' / ').first.trim()];
+      }
+      return price == null || price == trade.ltp
+          ? trade
+          : trade.copyWith(ltp: price);
+    }).toList();
+  }
+
+  bool _samePrices(List<HomeTrade> before, List<HomeTrade> after) {
+    if (before.length != after.length) return false;
+    for (var i = 0; i < before.length; i++) {
+      if (before[i].ltp != after[i].ltp) return false;
+    }
+    return true;
+  }
+
+  void _applyLivePrices(Map<String, double> prices) {
+    if (!mounted || prices.isEmpty || _trades.isEmpty) return;
+    final updated = _mergeLivePrices(_trades, prices);
+    if (_samePrices(_trades, updated)) return;
+    setState(() => _trades = updated);
   }
 
   Future<void> _loadProfile({bool silent = false}) async {
@@ -138,12 +201,14 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
           status: 'LIVE,CLOSED',
         ),
         _homeRepository.fetchSubscriptions(),
+        _homeRepository.fetchSavedTradeIds(),
       ]);
       if (!mounted) return;
       final feed = results[2] as HomeFeedPage;
       final profile = results[0] as DiscoverAnalystModel;
       final subscriptions = results[3] as List<HomeSubscription>;
       final batches = results[1] as List<DiscoverBatchModel>;
+      final savedIds = results[4] as Set<String>;
       final batchPlanIds = batches.map((b) => b.planId).toSet();
       final hasActiveSub = subscriptions.any(
         (s) =>
@@ -151,11 +216,13 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
             (s.analystId == analystId ||
                 (s.planId != null && batchPlanIds.contains(s.planId))),
       );
+      final trades = _mergeLivePrices(feed.trades, _livePrices.current);
       setState(() {
         _profile = profile;
         _discoverWinRate = profile.winRate;
         _batches = batches;
-        _trades = feed.trades;
+        _trades = trades;
+        _savedTradeIds = savedIds;
         _tradePage = feed.page;
         _hasMoreTrades = feed.hasMore;
         _hasActiveSubscription = hasActiveSub;
@@ -174,6 +241,7 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
         _loadingTrades = false;
         _error = null;
       });
+      _trackLiveSymbols(trades);
       if (widget.initialProfile == null) {
         _loadDiscoverWinRate(analystId);
       }
@@ -231,14 +299,89 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
         status: 'LIVE,CLOSED',
       );
       if (!mounted) return;
+      final merged = _mergeLivePrices(
+        <HomeTrade>[..._trades, ...page.trades],
+        _livePrices.current,
+      );
       setState(() {
-        _trades = <HomeTrade>[..._trades, ...page.trades];
+        _trades = merged;
         _tradePage = page.page;
         _hasMoreTrades = page.hasMore;
         _loadingMoreTrades = false;
       });
+      _trackLiveSymbols(merged);
     } catch (_) {
       if (mounted) setState(() => _loadingMoreTrades = false);
+    }
+  }
+
+  Future<void> _toggleSaved(String tradeId) async {
+    if (tradeId.isEmpty || _savingTradeId == tradeId) return;
+
+    final wasSaved = _savedTradeIds.contains(tradeId);
+    final optimistic = Set<String>.from(_savedTradeIds);
+    if (wasSaved) {
+      optimistic.remove(tradeId);
+    } else {
+      optimistic.add(tradeId);
+    }
+    setState(() {
+      _savedTradeIds = optimistic;
+      _savingTradeId = tradeId;
+    });
+
+    try {
+      final bool saved = wasSaved
+          ? await _homeRepository.unsaveTrade(tradeId)
+          : await _homeRepository.saveTrade(tradeId);
+      if (!mounted) return;
+
+      setState(() {
+        final next = Set<String>.from(_savedTradeIds);
+        if (saved) {
+          next.add(tradeId);
+        } else {
+          next.remove(tradeId);
+        }
+        _savedTradeIds = next;
+        _savingTradeId = null;
+      });
+
+      _homeBloc.add(HomeSavedTradeIdsUpdated(_savedTradeIds));
+
+      if (saved) {
+        await CommonAppNotificationBar.success(
+          context: context,
+          title: 'Trade saved',
+          message: 'Added to your saved trades.',
+          duration: const Duration(seconds: 2),
+        );
+      } else {
+        await CommonAppNotificationBar.error(
+          context: context,
+          title: 'Trade removed',
+          message: 'Removed from your saved trades.',
+        );
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        final rolledBack = Set<String>.from(_savedTradeIds);
+        if (wasSaved) {
+          rolledBack.add(tradeId);
+        } else {
+          rolledBack.remove(tradeId);
+        }
+        _savedTradeIds = rolledBack;
+        _savingTradeId = null;
+      });
+      await CommonAppNotificationBar.error(
+        context: context,
+        title: 'Error',
+        message: wasSaved
+            ? 'Failed to remove trade. Please try again.'
+            : 'Failed to save trade. Please try again.',
+      );
     }
   }
 
@@ -289,19 +432,15 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
   Widget _buildProfile(BuildContext context) {
     final profile = _profile!;
     final winRate =
-        '${((_discoverWinRate ?? profile.winRate) * 100).round()}%';
+        DiscoverUiMapper.formatWinRateLabel(_discoverWinRate ?? profile.winRate);
     final averagePnl =
-        '${profile.avgPnlPercent >= 0 ? '+' : ''}${profile.avgPnlPercent.toStringAsFixed(2)}%';
+        '${profile.avgPnlPercent >= 0 ? '+' : ''}${profile.avgPnlPercent}%';
     final initials = _initials(profile.name);
-    final bool isWeb = isDesktopWeb(context);
-    final EdgeInsets pagePad = isWeb
-        ? const EdgeInsets.fromLTRB(20, 4, 20, 0)
-        : AppSize.insets(context, left: 16, right: 16, top: 4);
 
     return Column(
       children: <Widget>[
         Padding(
-          padding: pagePad,
+          padding: AppSize.insets(context, left: 16, right: 16, top: 4),
           child: Stack(
             alignment: Alignment.topCenter,
             children: <Widget>[
@@ -339,7 +478,7 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
                     profile.name,
                     textAlign: TextAlign.center,
                     style: TextStyleConstants.cardTitle.copyWith(
-                      fontSize: isWeb ? 22 : AppSize.sp(context, 20),
+                      fontSize: AppSize.sp(context, 20),
                     ),
                   ),
                   if (profile.sebiLicenseNumber != null) ...<Widget>[
@@ -361,34 +500,31 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
             ],
           ),
         ),
-        SizedBox(height: isWeb ? 12 : AppSize.h(context, 10)),
-        // Stats strip: on web, cap width and center so it does not stretch edge-to-edge.
+        SizedBox(height: AppSize.h(context, 10)),
         Padding(
-          padding: isWeb
-              ? const EdgeInsets.symmetric(horizontal: 20)
-              : AppSize.symmetric(context, horizontal: 16),
+          padding: AppSize.symmetric(context, horizontal: 16),
           child: Align(
             alignment: Alignment.center,
+            // Keep the metrics strip compact on wide web — don't full-bleed.
             child: ConstrainedBox(
               constraints: BoxConstraints(
-                maxWidth: isWeb ? 560 : double.infinity,
+                maxWidth: ResponsiveLayout.useWebDesktopShell(context)
+                    ? 480
+                    : double.infinity,
               ),
               child: Container(
                 width: double.infinity,
-                padding: isWeb
-                    ? const EdgeInsets.symmetric(horizontal: 16, vertical: 14)
-                    : AppSize.insets(
-                        context,
-                        left: 14,
-                        right: 14,
-                        top: 12,
-                        bottom: 12,
-                      ),
+                padding: AppSize.insets(
+                  context,
+                  left: 14,
+                  right: 14,
+                  top: 12,
+                  bottom: 12,
+                ),
                 decoration: BoxDecoration(
                   color: ColorConstants.white,
-                  borderRadius: BorderRadius.circular(
-                    isWeb ? 14 : AppSize.r(context, 16),
-                  ),
+                  borderRadius:
+                      BorderRadius.circular(AppSize.r(context, 16)),
                   border: Border.all(color: ColorConstants.line),
                 ),
                 child: Row(
@@ -407,8 +543,8 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
                       ColorConstants.ink,
                     ),
                     _Stat(
-                      profile.totalSubscribers.toString(),
-                      'Subscribers',
+                      profile.experienceYears.toString(),
+                      'Yrs experience',
                       ColorConstants.ink,
                     ),
                   ],
@@ -417,58 +553,70 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
             ),
           ),
         ),
-        SizedBox(height: isWeb ? 14 : AppSize.h(context, 16)),
+        SizedBox(height: AppSize.h(context, 16)),
         Padding(
-          padding: isWeb
-              ? const EdgeInsets.symmetric(horizontal: 20)
-              : AppSize.symmetric(context, horizontal: 16),
-          child: Align(
-            alignment: Alignment.center,
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                maxWidth: isWeb ? 720 : double.infinity,
+          padding: AppSize.symmetric(context, horizontal: 16),
+          child: Row(
+            children: <Widget>[
+              Expanded(
+                child: _ProfileTab(
+                  label: 'Batches & Plans',
+                  selected: _tab == 0,
+                  onTap: () => setState(() => _tab = 0),
+                ),
               ),
-              child: Row(
-                children: <Widget>[
-                  Expanded(
-                    child: _ProfileTab(
-                      label: 'Batches & Plans',
-                      selected: _tab == 0,
-                      onTap: () => setState(() => _tab = 0),
-                    ),
-                  ),
-                  SizedBox(width: isWeb ? 10 : AppSize.w(context, 8)),
-                  Expanded(
-                    child: _ProfileTab(
-                      label: 'Recent Trades',
-                      selected: _tab == 1,
-                      onTap: () => setState(() => _tab = 1),
-                    ),
-                  ),
-                ],
+              SizedBox(width: AppSize.w(context, 8)),
+              Expanded(
+                child: _ProfileTab(
+                  label: 'Recent Trades',
+                  selected: _tab == 1,
+                  onTap: () => setState(() => _tab = 1),
+                ),
               ),
-            ),
+            ],
           ),
         ),
-        SizedBox(height: isWeb ? 12 : AppSize.h(context, 12)),
+        SizedBox(height: AppSize.h(context, 12)),
         Expanded(child: _tab == 0 ? _buildBatches() : _buildTrades()),
       ],
     );
   }
 
   Widget _buildBatches() {
-    final bool isWeb = isDesktopWeb(context);
+    final columns = ResponsiveLayout.cardGridColumns(context);
+    final hPad = ResponsiveLayout.contentHorizontalPadding(context);
+    final bottomPad = ResponsiveLayout.useWebDesktopShell(context) ? 24.0 : 110.0;
+
     if (_loadingBatches) {
-      if (isWeb) {
-        return _WebTwoColScroll(
-          itemCount: 4,
-          itemBuilder: (_, __) => const ShimmerBatchCard(),
+      if (columns > 1) {
+        return ShimmerScope(
+          child: GridView.builder(
+            physics: const NeverScrollableScrollPhysics(),
+            padding: EdgeInsets.fromLTRB(hPad, 6, hPad, bottomPad),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: columns,
+              mainAxisSpacing: 16,
+              crossAxisSpacing: 16,
+              mainAxisExtent: columns >= 3 ? 260 : 280,
+            ),
+            itemCount: columns * 2,
+            itemBuilder: (_, __) => const Align(
+              alignment: Alignment.topCenter,
+              child: ShimmerBatchCard(),
+            ),
+          ),
         );
       }
       return ShimmerScope(
         child: ListView.builder(
           physics: const NeverScrollableScrollPhysics(),
-          padding: AppSize.insets(context, left: 16, right: 16, top: 6, bottom: 110),
+          padding: AppSize.insets(
+            context,
+            left: 16,
+            right: 16,
+            top: 6,
+            bottom: 110,
+          ),
           itemCount: 3,
           itemBuilder: (_, __) => Padding(
             padding: EdgeInsets.only(bottom: AppSize.h(context, 18)),
@@ -481,36 +629,47 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
       return const _EmptyList(message: 'No active batches or plans.');
     }
 
-    Widget batchCard(int index) {
-      final batch = DiscoverUiMapper.toBatchData(_batches[index]);
-      return CommonBatchCard(
-        data: batch,
-        showAnalystProfile: false,
-        isSubscribed: _activePlanIds.contains(_batches[index].planId) ||
-            _batches[index].tiers.any(
-              (tier) => _activeBatchIds.contains(tier.id),
-            ),
-        onTap: () => context.push(
-          AppRoutingName.batchDetails,
-          extra: _batches[index].planId,
-        ),
-        onSubscribe: () => context.push(
-          AppRoutingName.subscriptions,
-          extra: SubscriptionPageArgs(
-            planId: _batches[index].planId,
-            analystId: _batches[index].analystId,
-          ),
-        ),
-      );
-    }
-
-    if (isWeb) {
+    if (columns > 1) {
       return RefreshIndicator(
         color: ColorConstants.brandBlue,
         onRefresh: () => _loadProfile(silent: true),
-        child: _WebTwoColScroll(
+        child: GridView.builder(
+          physics: const AlwaysScrollableScrollPhysics(),
+          clipBehavior: Clip.none,
+          padding: EdgeInsets.fromLTRB(hPad, 6, hPad, bottomPad),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            mainAxisSpacing: 16,
+            crossAxisSpacing: 16,
+            mainAxisExtent: columns >= 3 ? 260 : 280,
+          ),
           itemCount: _batches.length,
-          itemBuilder: (_, index) => batchCard(index),
+          itemBuilder: (context, index) {
+            final batch = DiscoverUiMapper.toBatchData(_batches[index]);
+            return Align(
+              alignment: Alignment.topCenter,
+              child: CommonBatchCard(
+                data: batch,
+                showAnalystProfile: false,
+                isSubscribed:
+                    _activePlanIds.contains(_batches[index].planId) ||
+                    _batches[index].tiers.any(
+                      (tier) => _activeBatchIds.contains(tier.id),
+                    ),
+                onTap: () => context.push(
+                  AppRoutingName.batchDetails,
+                  extra: _batches[index].planId,
+                ),
+                onSubscribe: () => context.push(
+                  AppRoutingName.subscriptions,
+                  extra: SubscriptionPageArgs(
+                    planId: _batches[index].planId,
+                    analystId: _batches[index].analystId,
+                  ),
+                ),
+              ),
+            );
+          },
         ),
       );
     }
@@ -529,9 +688,29 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
         ),
         itemCount: _batches.length,
         itemBuilder: (context, index) {
+          final batch = DiscoverUiMapper.toBatchData(_batches[index]);
           return Padding(
             padding: EdgeInsets.only(bottom: AppSize.h(context, 18)),
-            child: batchCard(index),
+            child: CommonBatchCard(
+              data: batch,
+              showAnalystProfile: false,
+              isSubscribed:
+                  _activePlanIds.contains(_batches[index].planId) ||
+                  _batches[index].tiers.any(
+                    (tier) => _activeBatchIds.contains(tier.id),
+                  ),
+              onTap: () => context.push(
+                AppRoutingName.batchDetails,
+                extra: _batches[index].planId,
+              ),
+              onSubscribe: () => context.push(
+                AppRoutingName.subscriptions,
+                extra: SubscriptionPageArgs(
+                  planId: _batches[index].planId,
+                  analystId: _batches[index].analystId,
+                ),
+              ),
+            ),
           );
         },
       ),
@@ -539,18 +718,40 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
   }
 
   Widget _buildTrades() {
-    final bool isWeb = isDesktopWeb(context);
+    final columns = ResponsiveLayout.cardGridColumns(context);
+    final hPad = ResponsiveLayout.contentHorizontalPadding(context);
+    final bottomPad = ResponsiveLayout.useWebDesktopShell(context) ? 24.0 : 110.0;
+
     if (_loadingTrades) {
-      if (isWeb) {
-        return _WebTwoColScroll(
-          itemCount: 4,
-          itemBuilder: (_, __) => const ShimmerTradeCard(),
+      if (columns > 1) {
+        return ShimmerScope(
+          child: GridView.builder(
+            physics: const NeverScrollableScrollPhysics(),
+            padding: EdgeInsets.fromLTRB(hPad, 6, hPad, bottomPad),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: columns,
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
+              mainAxisExtent: columns >= 3 ? 230 : 300,
+            ),
+            itemCount: columns * 2,
+            itemBuilder: (_, __) => const Align(
+              alignment: Alignment.topCenter,
+              child: ShimmerTradeCard(),
+            ),
+          ),
         );
       }
       return ShimmerScope(
         child: ListView.builder(
           physics: const NeverScrollableScrollPhysics(),
-          padding: AppSize.insets(context, left: 16, right: 16, top: 6, bottom: 110),
+          padding: AppSize.insets(
+            context,
+            left: 16,
+            right: 16,
+            top: 6,
+            bottom: 110,
+          ),
           itemCount: 4,
           itemBuilder: (_, __) => Padding(
             padding: EdgeInsets.only(bottom: AppSize.h(context, 12)),
@@ -560,6 +761,9 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
       );
     }
     if (_trades.isEmpty) {
+      // Only show the subscribe CTA when the user has no active subscription
+      // to any of this analyst's plans. If they are subscribed but there are
+      // no trades yet, show a neutral empty state instead.
       if (!_hasActiveSubscription) {
         String? priceLabel;
         if (_batches.isNotEmpty) {
@@ -579,34 +783,48 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
       return const _EmptyList(message: 'No recent trades yet.');
     }
 
-    Widget tradeCard(int index) {
-      final trade = _trades[index];
-      return CommonTradingCard(
-        data: mapHomeTradeToCard(trade),
-        onViewDetails: () => context.push(
-          AppRoutingName.tradeDetails,
-          extra: trade,
-        ),
-      );
-    }
+    final itemCount = _trades.length + (_loadingMoreTrades ? 1 : 0);
 
-    if (isWeb) {
+    if (columns > 1) {
       return RefreshIndicator(
         color: ColorConstants.brandBlue,
         onRefresh: () => _loadProfile(silent: true),
-        child: _WebTwoColScroll(
+        child: GridView.builder(
           controller: _tradesController,
-          itemCount: _trades.length + (_loadingMoreTrades ? 1 : 0),
+          physics: const AlwaysScrollableScrollPhysics(),
+          clipBehavior: Clip.none,
+          padding: EdgeInsets.fromLTRB(hPad, 6, hPad, bottomPad),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            mainAxisSpacing: 12,
+            crossAxisSpacing: 12,
+            mainAxisExtent: columns >= 3 ? 230 : 300,
+          ),
+          itemCount: itemCount,
           itemBuilder: (context, index) {
             if (index >= _trades.length) {
-              return const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(16),
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
+              return const Align(
+                alignment: Alignment.topCenter,
+                child: ShimmerTradeCard(),
               );
             }
-            return tradeCard(index);
+            final trade = _trades[index];
+            return Align(
+              alignment: Alignment.topCenter,
+              child: CommonTradingCard(
+                data: mapHomeTradeToCard(
+                  trade,
+                  savedIds: _savedTradeIds,
+                  onSaveTap: trade.id.isEmpty
+                      ? null
+                      : () => _toggleSaved(trade.id),
+                ),
+                onViewDetails: () => context.push(
+                  AppRoutingName.tradeDetails,
+                  extra: trade,
+                ),
+              ),
+            );
           },
         ),
       );
@@ -625,7 +843,7 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
           top: 6,
           bottom: 110,
         ),
-        itemCount: _trades.length + (_loadingMoreTrades ? 1 : 0),
+        itemCount: itemCount,
         itemBuilder: (context, index) {
           if (index == _trades.length) {
             return Padding(
@@ -635,9 +853,22 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
               ),
             );
           }
+          final trade = _trades[index];
           return Padding(
             padding: EdgeInsets.only(bottom: AppSize.h(context, 12)),
-            child: tradeCard(index),
+            child: CommonTradingCard(
+              data: mapHomeTradeToCard(
+                trade,
+                savedIds: _savedTradeIds,
+                onSaveTap: trade.id.isEmpty
+                    ? null
+                    : () => _toggleSaved(trade.id),
+              ),
+              onViewDetails: () => context.push(
+                AppRoutingName.tradeDetails,
+                extra: trade,
+              ),
+            ),
           );
         },
       ),
@@ -648,48 +879,6 @@ class _AdvisorProfilePageState extends State<AdvisorProfilePage> {
     final parts =
         name.trim().split(RegExp(r'\s+')).where((part) => part.isNotEmpty);
     return parts.take(2).map((part) => part[0].toUpperCase()).join();
-  }
-}
-
-/// Web-only: max 2 cards per row (same idea as Home trade feed).
-class _WebTwoColScroll extends StatelessWidget {
-  const _WebTwoColScroll({
-    required this.itemCount,
-    required this.itemBuilder,
-    this.controller,
-  });
-
-  final int itemCount;
-  final IndexedWidgetBuilder itemBuilder;
-  final ScrollController? controller;
-
-  @override
-  Widget build(BuildContext context) {
-    final int rowCount = (itemCount + 1) ~/ 2;
-    return ListView.separated(
-      controller: controller,
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(20, 6, 20, 32),
-      itemCount: rowCount,
-      separatorBuilder: (_, _) =>
-          const SizedBox(height: WebTradeCardLayout.mainSpacing),
-      itemBuilder: (context, rowIndex) {
-        final int left = rowIndex * 2;
-        final int right = left + 1;
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Expanded(child: itemBuilder(context, left)),
-            const SizedBox(width: WebTradeCardLayout.crossSpacing),
-            Expanded(
-              child: right < itemCount
-                  ? itemBuilder(context, right)
-                  : const SizedBox.shrink(),
-            ),
-          ],
-        );
-      },
-    );
   }
 }
 
@@ -734,6 +923,9 @@ class _ProfileAvatar extends StatelessWidget {
               : Image.network(
                   imageUrl!,
                   fit: BoxFit.cover,
+                  webHtmlElementStrategy: kIsWeb
+                      ? WebHtmlElementStrategy.fallback
+                      : WebHtmlElementStrategy.never,
                   errorBuilder: (_, _, _) => fallback,
                 ),
         ),
@@ -751,29 +943,22 @@ class _Stat extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bool isWeb = isDesktopWeb(context);
     return Expanded(
       child: Column(
         children: <Widget>[
           Text(
             value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
             style: TextStyleConstants.numeric.copyWith(
-              fontSize: isWeb ? 15 : AppSize.sp(context, 14),
+              fontSize: AppSize.sp(context, 14),
               fontWeight: FontWeight.w700,
               color: color,
             ),
           ),
-          SizedBox(height: isWeb ? 3 : AppSize.h(context, 2)),
+          SizedBox(height: AppSize.h(context, 2)),
           Text(
             label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
             style: TextStyleConstants.caption.copyWith(
-              fontSize: isWeb ? 11 : AppSize.sp(context, 10),
+              fontSize: AppSize.sp(context, 10),
               color: ColorConstants.mute,
             ),
           ),

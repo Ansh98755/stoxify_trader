@@ -153,11 +153,16 @@ class DiscoverRepositoryImpl implements DiscoverRepository {
     required String planId,
     String? batchId,
     String? couponCode,
-  }) => _remote.createSubscription(
-    planId: planId,
-    batchId: batchId,
-    couponCode: couponCode,
-  );
+    double? amount,
+    double? discountAmount,
+  }) =>
+      _remote.createSubscription(
+        planId: planId,
+        batchId: batchId,
+        couponCode: couponCode,
+        amount: amount,
+        discountAmount: discountAmount,
+      );
 
   @override
   Future<void> verifySubscriptionPayment({

@@ -7,6 +7,7 @@ import '../../domain/repositories/home_repository.dart';
 import '../models/home_subscription_model.dart';
 import '../models/home_trade_model.dart';
 import '../models/payment_transaction_model.dart';
+import '../models/trade_facets_model.dart';
 import '../../domain/entities/payment_transaction.dart';
 
 class HomeRemoteDataSource {
@@ -22,6 +23,7 @@ class HomeRemoteDataSource {
     required int page,
     String? segment,
     String status = 'LIVE',
+    String? category,
     String? analystId,
   }) async {
     try {
@@ -32,6 +34,7 @@ class HomeRemoteDataSource {
           'limit': HomeRepository.pageSize,
           'segment': segment,
           'status': status,
+          'category': category,
           'analyst_id': analystId,
         }),
       );
@@ -88,6 +91,26 @@ class HomeRemoteDataSource {
     }
   }
 
+  /// GET /trades/facets → available filter options for the home feed.
+  Future<TradeFacets> fetchTradeFacets() async {
+    try {
+      final res = await _dio.get<dynamic>('/trades/facets');
+      if (res.statusCode == 401) throw const AuthFailure();
+      if (res.statusCode != 200) {
+        throw ServerFailure('Failed to load trade facets (${res.statusCode})');
+      }
+      final data = (res.data as Map).cast<String, dynamic>();
+      return TradeFacets.fromJson(data);
+    } on DioException catch (e) {
+      if (e.type == DioExceptionType.connectionTimeout ||
+          e.type == DioExceptionType.receiveTimeout ||
+          e.type == DioExceptionType.connectionError) {
+        throw const NetworkFailure();
+      }
+      rethrow;
+    }
+  }
+
   /// GET /trades/{tradeId} -> returns the complete trade, including actions.
   Future<HomeTrade> fetchTrade(String tradeId) async {
     try {
@@ -122,12 +145,7 @@ class HomeRemoteDataSource {
         throw ServerFailure(
             'Failed to load saved trade IDs (${res.statusCode})');
       }
-      final data = res.data;
-      if (data is! Map) {
-        throw ServerFailure(
-          'Failed to load saved trade IDs (unexpected response)',
-        );
-      }
+      final data = (res.data as Map).cast<String, dynamic>();
       final raw = (data['trade_ids'] as List?) ?? const <dynamic>[];
       return raw.whereType<String>().toSet();
     } on DioException catch (e) {
@@ -149,10 +167,7 @@ class HomeRemoteDataSource {
       if (res.statusCode != 200) {
         throw ServerFailure('Failed to load saved trades (${res.statusCode})');
       }
-      final data = res.data;
-      if (data is! Map) {
-        throw ServerFailure('Failed to load saved trades (unexpected response)');
-      }
+      final data = (res.data as Map).cast<String, dynamic>();
       final raw = (data['trades'] as List?) ?? const <dynamic>[];
       return raw
           .whereType<Map>()
@@ -226,12 +241,7 @@ class HomeRemoteDataSource {
         );
       }
 
-      final data = res.data;
-      if (data is! Map) {
-        throw ServerFailure(
-          'Failed to load subscriptions (unexpected response)',
-        );
-      }
+      final data = (res.data as Map).cast<String, dynamic>();
       return ((data['subscriptions'] as List?) ?? const <dynamic>[])
           .whereType<Map>()
           .map(
@@ -246,6 +256,45 @@ class HomeRemoteDataSource {
       }
       rethrow;
     }
+  }
+
+  /// POST /subscriptions/{subscriptionId}/cancel
+  Future<void> cancelSubscription(
+    String subscriptionId, {
+    required String reason,
+  }) async {
+    try {
+      final res = await _dio.post<dynamic>(
+        '/subscriptions/$subscriptionId/cancel',
+        data: <String, dynamic>{'reason': reason},
+      );
+      if (res.statusCode == 401) throw const AuthFailure();
+      if (res.statusCode != 200 &&
+          res.statusCode != 201 &&
+          res.statusCode != 204) {
+        final message = _errorMessage(res.data) ??
+            'Failed to cancel subscription (${res.statusCode})';
+        throw ServerFailure(message);
+      }
+    } on DioException catch (e) {
+      if (e.type == DioExceptionType.connectionTimeout ||
+          e.type == DioExceptionType.receiveTimeout ||
+          e.type == DioExceptionType.connectionError) {
+        throw const NetworkFailure();
+      }
+      if (e.response?.statusCode == 401) throw const AuthFailure();
+      final message = _errorMessage(e.response?.data) ??
+          'Failed to cancel subscription';
+      throw ServerFailure(message);
+    }
+  }
+
+  String? _errorMessage(dynamic data) {
+    if (data is! Map) return null;
+    final map = data.cast<String, dynamic>();
+    final dynamic msg = map['message'] ?? map['detail'] ?? map['error'];
+    if (msg is String && msg.trim().isNotEmpty) return msg.trim();
+    return null;
   }
 
   Future<List<PaymentTransaction>> fetchPaymentTransactions() async {

@@ -6,6 +6,18 @@ import '../../data/models/discover_batch_model.dart';
 import '../widgets/discover_analyst_card.dart';
 
 class DiscoverUiMapper {
+  /// Backend `win_rate` is already a percent (e.g. 39.7 → "39.7%"). Do not ×100.
+  static String formatWinRateLabel(double winRate) {
+    if (winRate == winRate.roundToDouble()) {
+      return '${winRate.toInt()}%';
+    }
+    final trimmed = winRate
+        .toStringAsFixed(2)
+        .replaceFirst(RegExp(r'0+$'), '')
+        .replaceFirst(RegExp(r'\.$'), '');
+    return '$trimmed%';
+  }
+
   static DiscoverAnalystData toAnalystData(DiscoverAnalystModel model) {
     return DiscoverAnalystData(
       userId: model.userId,
@@ -14,13 +26,20 @@ class DiscoverUiMapper {
       sebi: model.sebiLicenseNumber,
       subtitle: _registrationTypeLabel(model.registrationType),
       profilePicUrl: model.profilePicUrl,
-      winRate: '${(model.winRate * 100).round()}%',
-      avgPnl: '${model.avgPnlPercent >= 0 ? '+' : ''}${model.avgPnlPercent}%',
-      subscribers: _formatSubscribers(model.totalSubscribers),
+      winRate: formatWinRateLabel(model.winRate),
+      avgPnl: formatAvgPnlLabel(model.avgPnlPercent),
+      experienceYears: '${model.experienceYears}',
       tags: model.segmentsCovered.take(3).toList(),
       avatarStart: ColorConstants.brandBlueLight,
       avatarEnd: ColorConstants.brandBlue,
     );
+  }
+
+  /// Keeps Avg P&L readable on narrow metric columns (e.g. `+0.69%`).
+  static String formatAvgPnlLabel(double avgPnlPercent) {
+    final sign = avgPnlPercent >= 0 ? '+' : '';
+    final value = avgPnlPercent.toStringAsFixed(2);
+    return '$sign$value%';
   }
 
   static CommonBatchData toBatchData(DiscoverBatchModel model) {
@@ -28,13 +47,15 @@ class DiscoverUiMapper {
     if (model.riskLevel == 'LOW') risk = RiskLevel.low;
     if (model.riskLevel == 'HIGH') risk = RiskLevel.high;
 
+    final about = model.description?.trim();
     return CommonBatchData(
       name: model.name,
       risk: risk,
       analyst: model.analystName,
       analystInit: _getInitials(model.analystName),
       sebi: model.analystSebiNumber ?? '',
-      description: model.description ?? '',
+      // Match batch details: show plan name when about text is missing.
+      description: (about != null && about.isNotEmpty) ? about : model.name,
       tags: <String>[...model.segments, ...model.horizons].take(4).toList(),
       price: '₹${model.startingPrice.round()}',
       subscriberCount: model.subscriberCount == null

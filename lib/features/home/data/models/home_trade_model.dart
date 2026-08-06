@@ -64,6 +64,7 @@ class HomeTradeModel {
       pnlPercent: pnl,
       runningPnlPercent: (leg['running_pnl_percent'] as num?)?.toDouble(),
       batchName: _batchName(json['batch']),
+      analystId: (json['analyst_id'] ?? json['analystId'])?.toString(),
       analystName: json['analyst_name'] as String?,
       logoUrl: json['logo_url'] as String?,
       rationale: (json['rationale'] as String?)?.trim().isNotEmpty == true
@@ -81,7 +82,11 @@ class HomeTradeModel {
       hitTargets: ((json['hit_targets'] as List?) ?? [])
           .whereType<String>().toList(),
       entryTimestamp: _date(json['entry_timestamp']),
-      modifications: _modifications(json['modification_history']),
+      modifications: _modifications(
+        json['modification_history'],
+        analystId: (json['analyst_id'] ?? json['analystId'])?.toString(),
+        analystName: json['analyst_name'] as String?,
+      ),
       planId: json['plan_id'] as String?,
     );
   }
@@ -172,18 +177,51 @@ class HomeTradeModel {
     return null;
   }
 
-  static List<TradeModification> _modifications(dynamic raw) {
+  static List<TradeModification> _modifications(
+    dynamic raw, {
+    String? analystId,
+    String? analystName,
+  }) {
     if (raw is! List) return const <TradeModification>[];
     return raw.whereType<Map>().map((e) {
       final map = e.cast<String, dynamic>();
       return TradeModification(
         modifiedAt: _date(map['modified_at']) ?? DateTime.now(),
-        modifiedBy: map['modified_by'] as String? ?? '',
+        modifiedBy: _resolveModifiedBy(
+          map['modified_by_name'] as String? ??
+              map['modified_by_display_name'] as String? ??
+              map['analyst_name'] as String? ??
+              map['modified_by'] as String? ??
+              '',
+          analystId: analystId,
+          analystName: analystName,
+        ),
         reason: (map['reason'] as String?)?.trim() ?? '',
         fieldsChanged: (map['fields_changed'] as Map?)
                 ?.cast<String, dynamic>() ??
             const <String, dynamic>{},
       );
     }).toList();
+  }
+
+  /// Prefer a display name over raw analyst IDs like `ANALYST_…`.
+  static String _resolveModifiedBy(
+    String raw, {
+    String? analystId,
+    String? analystName,
+  }) {
+    final by = raw.trim();
+    final name = analystName?.trim() ?? '';
+    if (name.isEmpty) return by.isEmpty ? '—' : by;
+
+    if (by.isEmpty) return name;
+
+    final id = (analystId ?? '').trim();
+    final looksLikeId = by == id ||
+        by.toUpperCase().startsWith('ANALYST_') ||
+        by.toUpperCase().startsWith('USER_');
+    if (looksLikeId) return name;
+
+    return by;
   }
 }

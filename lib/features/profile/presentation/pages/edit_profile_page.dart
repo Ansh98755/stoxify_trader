@@ -1,6 +1,7 @@
 import 'dart:convert';
-import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
 import 'package:image_picker/image_picker.dart';
@@ -32,7 +33,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
   final _picker = ImagePicker();
 
   String? _avatarUrl; // current hosted URL (from user or after upload)
-  File? _pickedFile;  // locally picked but not yet uploaded
+  Uint8List? _pickedBytes; // locally picked preview (mobile + web safe)
   bool _uploadingAvatar = false;
   bool _saving = false;
   String? _error;
@@ -77,11 +78,12 @@ class _EditProfilePageState extends State<EditProfilePage> {
               ),
             ),
             SizedBox(height: AppSize.h(ctx, 16)),
-            ListTile(
-              leading: const Icon(Icons.camera_alt_rounded),
-              title: const Text('Take a photo'),
-              onTap: () => Navigator.of(ctx).pop(ImageSource.camera),
-            ),
+            if (!kIsWeb)
+              ListTile(
+                leading: const Icon(Icons.camera_alt_rounded),
+                title: const Text('Take a photo'),
+                onTap: () => Navigator.of(ctx).pop(ImageSource.camera),
+              ),
             ListTile(
               leading: const Icon(Icons.photo_library_rounded),
               title: const Text('Choose from gallery'),
@@ -102,19 +104,21 @@ class _EditProfilePageState extends State<EditProfilePage> {
     );
     if (picked == null || !mounted) return;
 
-    final file = File(picked.path);
+    final bytes = await picked.readAsBytes();
     setState(() {
-      _pickedFile = file;
+      _pickedBytes = bytes;
       _error = null;
     });
 
     // Upload immediately so user sees the result before saving profile.
     setState(() => _uploadingAvatar = true);
     try {
-      final bytes = await file.readAsBytes();
       final base64Str = base64Encode(bytes);
-      final ext = picked.path.toLowerCase();
-      final contentType = ext.endsWith('.png') ? 'image/png' : 'image/jpeg';
+      final name = picked.name.toLowerCase();
+      final path = picked.path.toLowerCase();
+      final contentType = name.endsWith('.png') || path.endsWith('.png')
+          ? 'image/png'
+          : 'image/jpeg';
 
       final url = await _repo.uploadAvatar(
         imageBase64: base64Str,
@@ -209,7 +213,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
                         children: <Widget>[
                           // ── Avatar ──────────────────────────────────────
                           Center(child: _AvatarPicker(
-                            pickedFile: _pickedFile,
+                            pickedBytes: _pickedBytes,
                             avatarUrl: _avatarUrl,
                             uploading: _uploadingAvatar,
                             initials: _initials,
@@ -371,14 +375,14 @@ class _EditProfilePageState extends State<EditProfilePage> {
 
 class _AvatarPicker extends StatelessWidget {
   const _AvatarPicker({
-    required this.pickedFile,
+    required this.pickedBytes,
     required this.avatarUrl,
     required this.uploading,
     required this.initials,
     required this.onTap,
   });
 
-  final File? pickedFile;
+  final Uint8List? pickedBytes;
   final String? avatarUrl;
   final bool uploading;
   final String initials;
@@ -418,8 +422,8 @@ class _AvatarPicker extends StatelessWidget {
                         color: ColorConstants.white,
                       ),
                     )
-                  : pickedFile != null
-                      ? Image.file(pickedFile!, fit: BoxFit.cover)
+                  : pickedBytes != null
+                      ? Image.memory(pickedBytes!, fit: BoxFit.cover)
                       : avatarUrl != null
                           ? Image.network(
                               avatarUrl!,

@@ -5,9 +5,12 @@ import 'package:intl/intl.dart';
 
 import '../../../../core/constants/color_constants.dart';
 import '../../../../core/constants/text_style_constants.dart';
+import '../../../../core/errors/failures.dart';
 import '../../../../core/utils/app_size.dart';
 import '../../../../core/widgets/app_chrome.dart';
 import '../../../../core/widgets/app_screen_background.dart';
+import '../../../../core/widgets/common_app_notification_bar.dart';
+import '../../../../core/widgets/common_button_widget.dart';
 import '../../../home/domain/entities/home_subscription.dart';
 import '../../../home/domain/repositories/home_repository.dart';
 
@@ -20,6 +23,7 @@ class MySubscriptionsPage extends StatefulWidget {
 
 class _MySubscriptionsPageState extends State<MySubscriptionsPage> {
   late Future<List<HomeSubscription>> _subscriptions;
+  String? _cancellingId;
 
   @override
   void initState() {
@@ -32,8 +36,46 @@ class _MySubscriptionsPageState extends State<MySubscriptionsPage> {
   }
 
   Future<void> _refresh() async {
+    GetIt.instance<HomeRepository>().invalidateSubscriptions();
     setState(_load);
     await _subscriptions;
+  }
+
+  Future<void> _cancelSubscription(HomeSubscription subscription) async {
+    if (_cancellingId != null) return;
+
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (_) => const _CancelSubscriptionDialog(),
+    );
+    if (reason == null || !mounted) return;
+
+    setState(() => _cancellingId = subscription.id);
+    try {
+      await GetIt.instance<HomeRepository>().cancelSubscription(
+        subscription.id,
+        reason: reason,
+      );
+      if (!mounted) return;
+      await CommonAppNotificationBar.success(
+        context: context,
+        title: 'Subscription cancelled',
+        message: 'Your subscription has been cancelled successfully.',
+      );
+      await _refresh();
+    } catch (e) {
+      if (!mounted) return;
+      final message = e is Failure
+          ? e.message
+          : 'Unable to cancel this subscription. Please try again.';
+      await CommonAppNotificationBar.error(
+        context: context,
+        title: 'Cancellation failed',
+        message: message,
+      );
+    } finally {
+      if (mounted) setState(() => _cancellingId = null);
+    }
   }
 
   @override
@@ -86,8 +128,16 @@ class _MySubscriptionsPageState extends State<MySubscriptionsPage> {
                             itemCount: items.length,
                             separatorBuilder: (_, _) =>
                                 SizedBox(height: AppSize.h(context, 12)),
-                            itemBuilder: (_, index) =>
-                                _SubscriptionCard(subscription: items[index]),
+                            itemBuilder: (_, index) {
+                              final item = items[index];
+                              return _SubscriptionCard(
+                                subscription: item,
+                                isCancelling: _cancellingId == item.id,
+                                onCancel: item.isActive
+                                    ? () => _cancelSubscription(item)
+                                    : null,
+                              );
+                            },
                           ),
                         );
                       },
@@ -104,9 +154,15 @@ class _MySubscriptionsPageState extends State<MySubscriptionsPage> {
 }
 
 class _SubscriptionCard extends StatelessWidget {
-  const _SubscriptionCard({required this.subscription});
+  const _SubscriptionCard({
+    required this.subscription,
+    this.onCancel,
+    this.isCancelling = false,
+  });
 
   final HomeSubscription subscription;
+  final VoidCallback? onCancel;
+  final bool isCancelling;
 
   String _date(DateTime? date) {
     if (date == null) return '—';
@@ -295,6 +351,21 @@ class _SubscriptionCard extends StatelessWidget {
               ),
             ),
           ],
+          if (onCancel != null) ...<Widget>[
+            SizedBox(height: AppSize.h(context, 12)),
+            CommonButtonWidget(
+              label: 'Cancel subscription',
+              onPressed: onCancel,
+              isLoading: isCancelling,
+              backgroundColor: ColorConstants.white,
+              foregroundColor: ColorConstants.red,
+              disabledBackgroundColor: ColorConstants.white,
+              disabledForegroundColor: ColorConstants.red,
+              borderColor: ColorConstants.red.withValues(alpha: 0.35),
+              height: 42,
+              borderRadius: 10,
+            ),
+          ],
         ],
       ),
     );
@@ -354,6 +425,129 @@ class _ErrorState extends StatelessWidget {
           const Text('Unable to load subscriptions'),
           SizedBox(height: AppSize.h(context, 10)),
           FilledButton(onPressed: onRetry, child: const Text('Retry')),
+        ],
+      ),
+    );
+  }
+}
+
+class _CancelSubscriptionDialog extends StatefulWidget {
+  const _CancelSubscriptionDialog();
+
+  @override
+  State<_CancelSubscriptionDialog> createState() =>
+      _CancelSubscriptionDialogState();
+}
+
+class _CancelSubscriptionDialogState extends State<_CancelSubscriptionDialog> {
+  final TextEditingController _reasonController = TextEditingController();
+
+  @override
+  void dispose() {
+    _reasonController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final canSubmit = _reasonController.text.trim().isNotEmpty;
+    return AlertDialog(
+      title: const Text('Cancel subscription?'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const Text(
+            'You will lose access to this plan after cancellation. '
+            'Please tell us why you are cancelling.',
+          ),
+          SizedBox(height: AppSize.h(context, 16)),
+          TextField(
+            controller: _reasonController,
+            maxLines: 3,
+            maxLength: 250,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: const InputDecoration(
+              labelText: 'Reason',
+              hintText: 'Why are you cancelling?',
+              border: OutlineInputBorder(),
+            ),
+            onChanged: (_) => setState(() {}),
+          ),
+          SizedBox(height: AppSize.h(context, 8)),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: <Widget>[
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: ColorConstants.brandBlue,
+                    side: const BorderSide(color: ColorConstants.brandBlue),
+                    padding: AppSize.symmetric(
+                      context,
+                      horizontal: 8,
+                      vertical: 12,
+                    ),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    visualDensity: VisualDensity.compact,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(
+                        AppSize.r(context, 12),
+                      ),
+                    ),
+                  ),
+                  child: Text(
+                    'Keep subscription',
+                    textAlign: TextAlign.center,
+                    style: TextStyleConstants.caption.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: ColorConstants.brandBlue,
+                      fontSize: AppSize.sp(context, 12),
+                    ),
+                  ),
+                ),
+              ),
+              SizedBox(width: AppSize.w(context, 10)),
+              Expanded(
+                child: FilledButton(
+                  onPressed: canSubmit
+                      ? () => Navigator.of(context)
+                          .pop(_reasonController.text.trim())
+                      : null,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: ColorConstants.red,
+                    disabledBackgroundColor:
+                        ColorConstants.red.withValues(alpha: 0.35),
+                    foregroundColor: ColorConstants.white,
+                    padding: AppSize.symmetric(
+                      context,
+                      horizontal: 8,
+                      vertical: 12,
+                    ),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    visualDensity: VisualDensity.compact,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(
+                        AppSize.r(context, 12),
+                      ),
+                    ),
+                  ),
+                  child: Text(
+                    'Cancel subscription',
+                    textAlign: TextAlign.center,
+                    style: TextStyleConstants.caption.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: ColorConstants.white,
+                      fontSize: AppSize.sp(context, 12),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );

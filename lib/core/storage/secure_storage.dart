@@ -1,16 +1,17 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 /// Thin wrapper around [FlutterSecureStorage] for tokens and device id.
+///
+/// Mobile: default Keystore/Keychain constructor options only.
+/// Web: encrypted browser storage via [WebOptions] (ignored on mobile).
 class SecureStorage {
   SecureStorage();
 
-  // On web, flutter_secure_storage falls back to localStorage.
-  // Passing WebOptions ensures the key prefix is set and iDBNoWrap is false
-  // so reads/writes work correctly across page reloads.
-  static final FlutterSecureStorage _storage = FlutterSecureStorage(
-    webOptions: const WebOptions(
-      dbName: 'stoxify_secure',
-      publicKey: 'stoxify_key',
+  static const FlutterSecureStorage _storage = FlutterSecureStorage(
+    // Web-only; Android/iOS use package defaults exactly as before.
+    webOptions: WebOptions(
+      dbName: 'stoxifySecureStorage',
+      publicKey: 'stoxifySecureStorage',
     ),
   );
 

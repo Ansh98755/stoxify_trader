@@ -6,11 +6,10 @@ import '../datasources/notifications_remote_data_source.dart';
 // ── TTL constants ─────────────────────────────────────────────────────────────
 // Notifications page 1 — 2 min. WebSocket already handles real-time delivery
 // so the list only needs to be reasonably fresh when the screen opens.
-// Unread count — 2 min. Same rationale; WebSocket increments it in real-time
-// so the cached count is only a fallback on cold open.
+// Unread count is never cached — home red-dot is strictly driven by the
+// live `read=false` notifications API response.
 
 const _ttlList = Duration(minutes: 2);
-const _ttlCount = Duration(minutes: 2);
 
 String _listKey(int page, bool unreadOnly) =>
     'notifications|p$page|unread$unreadOnly';
@@ -21,9 +20,6 @@ class NotificationsRepositoryImpl implements NotificationsRepository {
   final NotificationsRemoteDataSource _remote;
 
   final _listCache = InMemoryCache<String, NotificationsPage_>();
-  final _countCache = InMemoryCache<String, int>();
-
-  static const _kCount = 'unread_count';
 
   // ── Fetch ─────────────────────────────────────────────────────────────────
 
@@ -45,11 +41,8 @@ class NotificationsRepositoryImpl implements NotificationsRepository {
 
   @override
   Future<int> fetchUnreadCount() {
-    return _countCache.get(
-      key: _kCount,
-      ttl: _ttlCount,
-      fetch: _remote.fetchUnreadCount,
-    );
+    // Always hit the network — red-dot must match live `read=false` data.
+    return _remote.fetchUnreadCount();
   }
 
   // ── Mutations — update cache locally, no refetch needed ───────────────────
@@ -81,13 +74,6 @@ class NotificationsRepositoryImpl implements NotificationsRepository {
       }
     }
 
-    // Decrement the unread count in cache if present.
-    if (_countCache.isValid(_kCount)) {
-      final current = await fetchUnreadCount();
-      final next = (current - 1).clamp(0, current);
-      _countCache.write(_kCount, next, ttl: _ttlCount);
-    }
-
     return updated;
   }
 
@@ -97,8 +83,6 @@ class NotificationsRepositoryImpl implements NotificationsRepository {
 
     // Bust all cached notification list pages — they all need unread=false.
     _listCache.clear();
-    // Zero out the unread count.
-    _countCache.write(_kCount, 0, ttl: _ttlCount);
 
     return updated;
   }
@@ -110,13 +94,11 @@ class NotificationsRepositoryImpl implements NotificationsRepository {
   /// notification arrives via WebSocket so the next open shows it.
   void invalidateOnNewNotification() {
     _listCache.invalidateWhere((key) => key.startsWith('notifications|p1'));
-    _countCache.invalidate(_kCount);
   }
 
   /// Hard-clears all cached data. Used on logout.
   @override
   void clearAll() {
     _listCache.clear();
-    _countCache.clear();
   }
 }

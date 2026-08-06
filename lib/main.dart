@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'app/routes/app_routing.dart';
@@ -9,12 +11,42 @@ import 'app/theme/app_theme.dart';
 import 'core/di/injection.dart';
 import 'core/network/connectivity_service.dart';
 import 'core/network/api_log.dart';
+import 'core/notifications/fcm_service.dart';
+import 'core/ota/ota_update_service.dart';
 import 'core/widgets/no_network_screen.dart';
+import 'firebase_options.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await _initializeFirebase();
+  // Background isolate handler is mobile-only (unsupported on web).
+  if (!kIsWeb) {
+    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+  }
   await configureDependencies();
+  await FcmService.instance.initialize();
   runApp(const MyApp());
+
+  // OTA: never block UI / splash. Shorebird engines also auto-check;
+  // this is an extra explicit download attempt after launch. Skipped on web only.
+  if (!kIsWeb) {
+    unawaited(OtaUpdateService.instance.checkAndDownload(silent: true));
+  }
+}
+
+/// Mobile: same as before — native google-services / GoogleService-Info, errors propagate.
+/// Web: options + soft-fail so a missing web app does not blank the site.
+Future<void> _initializeFirebase() async {
+  if (Firebase.apps.isNotEmpty) return;
+  if (kIsWeb) {
+    try {
+      await Firebase.initializeApp(options: DefaultFirebaseOptions.web);
+    } catch (e, st) {
+      debugPrint('[Firebase] initializeApp failed (web): $e\n$st');
+    }
+    return;
+  }
+  await Firebase.initializeApp();
 }
 
 class MyApp extends StatelessWidget {
@@ -116,17 +148,17 @@ class _ConnectivityWrapperState extends State<_ConnectivityWrapper>
               child: const NoNetworkScreen(),
             ),
           ),
-        // Debug-only API log FAB — hidden on web and in release builds.
-        if (kDebugMode && !kIsWeb)
-          Positioned(
-            right: 16,
-            bottom: 88,
-            child: FloatingActionButton.small(
-              heroTag: 'api-log-button',
-              onPressed: _showApiLogs,
-              child: const Icon(Icons.network_check_rounded),
-            ),
+        Positioned(
+          right: 16,
+          bottom: 88,
+          child: FloatingActionButton.small(
+            heroTag: 'api-log-button',
+            // This widget sits above the router's navigator, so a FAB
+            // tooltip would not have an Overlay ancestor here.
+            onPressed: _showApiLogs,
+            child: const Icon(Icons.network_check_rounded),
           ),
+        ),
       ],
     );
   }
@@ -153,7 +185,7 @@ class _ConnectivityWrapperState extends State<_ConnectivityWrapper>
               Expanded(
                 child: ValueListenableBuilder<List<ApiLogEntry>>(
                   valueListenable: ApiLogStore.instance.entries,
-                  builder: (_, entries, _) => entries.isEmpty
+                  builder: (_, entries, __) => entries.isEmpty
                       ? const Center(child: Text('No API calls yet'))
                       : ListView.builder(
                           itemCount: entries.length,

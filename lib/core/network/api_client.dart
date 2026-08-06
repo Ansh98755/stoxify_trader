@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart' show kIsWeb, kReleaseMode;
+import 'package:flutter/foundation.dart' show kReleaseMode;
 
 import '../storage/secure_storage.dart';
 import 'device_id.dart';
@@ -13,32 +13,18 @@ const _envBaseUrl = String.fromEnvironment('API_BASE_URL');
 const _cloudBaseUrl =
     'https://stoxify-gateway.thankfulriver-811030ea.centralindia.azurecontainerapps.io';
 
-/// Resolved API origin for Dio. Always ends with `/`.
-///
-/// On **web**, always use the Azure gateway (same host as WebSockets).
-/// Using `stoxify-trader.vercel.app/api` is fragile: absolute Dio paths
-/// drop `/api`, hit the SPA rewrite, and return `index.html` HTML that
-/// crashes Map casts on Home.
 String get apiBaseUrl {
-  if (kIsWeb) {
-    return '$_cloudBaseUrl/';
-  }
-
-  String raw;
   if (kReleaseMode) {
-    if (_envBaseUrl.isEmpty) {
-      raw = _cloudBaseUrl;
-    } else if (!_envBaseUrl.startsWith('https://')) {
+    if (_envBaseUrl.isEmpty) return _cloudBaseUrl;
+    if (!_envBaseUrl.startsWith('https://')) {
       throw StateError(
         'Release builds require an HTTPS API_BASE_URL; got "$_envBaseUrl".',
       );
-    } else {
-      raw = _envBaseUrl;
     }
-  } else {
-    raw = _envBaseUrl.isNotEmpty ? _envBaseUrl : _cloudBaseUrl;
+    return _envBaseUrl;
   }
-  return raw.endsWith('/') ? raw : '$raw/';
+  if (_envBaseUrl.isNotEmpty) return _envBaseUrl;
+  return _cloudBaseUrl;
 }
 
 Dio buildDio({
@@ -52,10 +38,7 @@ Dio buildDio({
       baseUrl: apiBaseUrl,
       connectTimeout: const Duration(seconds: 10),
       receiveTimeout: const Duration(seconds: 10),
-      // 5xx only ? let 4xx through so callers can read error bodies.
       validateStatus: (code) => code != null && code < 500,
-      // Prefer decode; if server returns HTML text, keep as String (not Map).
-      responseType: ResponseType.json,
     ),
   );
 
@@ -95,13 +78,9 @@ class _SignedAuthInterceptor extends Interceptor {
     RequestOptions options,
     RequestInterceptorHandler handler,
   ) async {
-    // Join under baseUrl (.../api/) instead of replacing host path.
-    _normalizeRelativePath(options);
-
     final method = options.method.toUpperCase();
-    // Browser proxy: /api/auth/... ? Azure: /auth/...
-    // Signature must use the Azure path.
-    final path = _pathForSignature(options);
+    final uri = options.uri;
+    final path = uri.query.isEmpty ? uri.path : '${uri.path}?${uri.query}';
 
     final isBodyless = method == 'GET' || method == 'HEAD';
     final body = isBodyless
@@ -120,63 +99,16 @@ class _SignedAuthInterceptor extends Interceptor {
     );
 
     options.headers['Content-Type'] = 'application/json';
-    options.headers['Accept'] = 'application/json';
     options.headers['X-Device-ID'] = deviceId;
     options.headers.addAll(sigHeaders);
 
-    final token = await storage.read(SecureStorage.accessToken);
+  final token = await storage.read(SecureStorage.accessToken);
     if (token != null) {
       options.headers['Authorization'] = 'Bearer $token';
     }
     options.extra['api_log_started_at'] = DateTime.now();
 
     handler.next(options);
-  }
-
-  static void _normalizeRelativePath(RequestOptions options) {
-    final p = options.path;
-    if (p.startsWith('http://') || p.startsWith('https://')) return;
-    if (p.startsWith('/')) {
-      options.path = p.substring(1);
-    }
-  }
-
-  /// Gateway path for ECDSA: `/auth/login/request-otp` (never `/api/...`).
-  static String _pathForSignature(RequestOptions options) {
-    var path = options.path;
-    if (path.isEmpty) {
-      path = options.uri.path;
-    }
-    if (!path.startsWith('/')) {
-      path = '/$path';
-    }
-    final query = options.uri.query;
-    if (query.isNotEmpty && !path.contains('?')) {
-      path = '$path?$query';
-    }
-    if (path == '/api') {
-      path = '/';
-    } else if (path.startsWith('/api/')) {
-      path = path.substring(4);
-    } else if (path.startsWith('/api?')) {
-      path = path.replaceFirst('/api', '');
-      if (!path.startsWith('/')) path = '/$path';
-    }
-    return path;
-  }
-
-  static bool _isAuthPath(String path) {
-    final p = path.startsWith('/') ? path : '/$path';
-    return p.startsWith('/auth/');
-  }
-
-  /// Detect SPA / HTML bodies (common when /api rewrite is missed).
-  static bool _looksLikeHtml(Object? data) {
-    if (data is! String) return false;
-    final t = data.trimLeft();
-    return t.startsWith('<!DOCTYPE') ||
-        t.startsWith('<!doctype') ||
-        t.startsWith('<html');
   }
 
   @override
@@ -190,23 +122,7 @@ class _SignedAuthInterceptor extends Interceptor {
       status: response.statusCode,
       responseBody: response.data,
     );
-
-    if (_looksLikeHtml(response.data)) {
-      return handler.reject(
-        DioException(
-          requestOptions: options,
-          response: response,
-          type: DioExceptionType.badResponse,
-          error:
-              'API returned HTML instead of JSON (likely hit Vercel SPA). '
-              'url=${options.uri}',
-          message:
-              'API returned HTML instead of JSON (likely hit Vercel SPA).',
-        ),
-      );
-    }
-
-    final isAuthEndpoint = _isAuthPath(options.path);
+    final isAuthEndpoint = options.path.startsWith('/auth/');
     final alreadyRetried = options.extra[_retriedFlag] == true;
     if (response.statusCode != 401 || isAuthEndpoint || alreadyRetried) {
       return handler.next(response);

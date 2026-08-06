@@ -238,6 +238,7 @@ class CommonBatchCard extends StatelessWidget {
                       // SizedBox(height: AppSize.h(context,8),),
                       // Text(data.description),
                       Container(
+                        width: double.infinity,
                         padding: AppSize.insets(
                           context,
                           left: 12,
@@ -254,65 +255,31 @@ class CommonBatchCard extends StatelessWidget {
                           ),
                           color: ColorConstants.white,
                         ),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.center,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: <Widget>[
-                            // Container(
-                            //   width: AppSize.r(context, 44),
-                            //   height: AppSize.r(context, 44),
-                            //   alignment: Alignment.center,
-                            //   decoration: BoxDecoration(
-                            //     shape: BoxShape.circle,
-                            //     gradient: LinearGradient(
-                            //       begin: Alignment.topLeft,
-                            //       end: Alignment.bottomRight,
-                            //       colors: <Color>[
-                            //         data.avatarStart,
-                            //         data.avatarEnd,
-                            //       ],
-                            //     ),
-                            //   ),
-                            //   child: Text(
-                            //     'About Batch',
-                            //     style: TextStyleConstants.caption.copyWith(
-                            //       color: ColorConstants.white,
-                            //       fontWeight: FontWeight.w700,
-                            //       fontSize: AppSize.sp(context, 14),
-                            //     ),
-                            //   ),
-                            // ),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisSize: MainAxisSize.min,
-                                children: <Widget>[
-                                  Text(
-                                    'About Batch',
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyleConstants.bodyMedium
-                                        .copyWith(
-                                      fontSize: AppSize.sp(context, 14),
-                                      fontWeight: FontWeight.w700,
-                                      color: ColorConstants.mute,
-                                    ),
-                                  ),
-                                  SizedBox(height: AppSize.h(context, 4)),
-                                  Text(
-                                    data.description,
-                                    overflow: TextOverflow.ellipsis,
-                                    style:
-                                    TextStyleConstants.caption.copyWith(
-                                      fontSize: AppSize.sp(context, 11),
-                                      fontWeight: FontWeight.w600,
-                                      color: ColorConstants.soft,
-                                      letterSpacing: 0.2,
-                                    ),
-                                  ),
-                                ],
+                            Text(
+                              'About Batch',
+                              style: TextStyleConstants.bodyMedium.copyWith(
+                                fontSize: AppSize.sp(context, 14),
+                                fontWeight: FontWeight.w700,
+                                color: ColorConstants.mute,
                               ),
                             ),
-                            // SizedBox(width: AppSize.w(context, 10)),
-                            // const SebiVerifiedPill(compact: true),
+                            SizedBox(height: AppSize.h(context, 4)),
+                            Text(
+                              data.description,
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyleConstants.caption.copyWith(
+                                fontSize: AppSize.sp(context, 12),
+                                fontWeight: FontWeight.w600,
+                                height: 1.35,
+                                color: ColorConstants.ink.withValues(
+                                  alpha: 0.72,
+                                ),
+                              ),
+                            ),
                           ],
                         ),
                       ),

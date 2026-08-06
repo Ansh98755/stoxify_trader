@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 
 import '../../../../../shared/models/trading_card_data.dart';
+import '../../data/models/trade_facets_model.dart';
 import '../../domain/entities/home_subscription.dart';
 import '../../domain/entities/home_trade.dart';
 import '../widgets/home_subscriptions_strip.dart';
@@ -22,8 +23,11 @@ class HomeState extends Equatable {
     this.unreadNotifications = 0,
     this.errorMessage,
     this.query = '',
-    this.filterSegment = 'All',
+    this.filterSegments = const <String>{},
+    this.filterCategories = const <String>{},
+    this.filterStatuses = const <String>{},
     this.sort = 'Newest',
+    this.facets,
     this.savedTradeIds = const <String>{},
     this.saveTradeSuccess,
     this.saveTradeError,
@@ -44,8 +48,13 @@ class HomeState extends Equatable {
   final int unreadNotifications;
   final String? errorMessage;
   final String query;
-  final String filterSegment;
+
+  /// Selected filter API values (multi-select). Empty = no filter for group.
+  final Set<String> filterSegments;
+  final Set<String> filterCategories;
+  final Set<String> filterStatuses;
   final String sort;
+  final TradeFacets? facets;
   final Set<String> savedTradeIds;
 
   /// Non-null after a successful save (true) or unsave (false) API call.
@@ -64,6 +73,12 @@ class HomeState extends Equatable {
   bool get isLoading => status == HomeStatus.loading && cards.isEmpty;
   bool get hasUnreadNotifications => unreadNotifications > 0;
 
+  bool get hasActiveFilters =>
+      filterSegments.isNotEmpty ||
+      filterCategories.isNotEmpty ||
+      filterStatuses.isNotEmpty ||
+      sort != 'Newest';
+
   HomeState copyWith({
     HomeStatus? status,
     String? greetingName,
@@ -79,8 +94,11 @@ class HomeState extends Equatable {
     String? errorMessage,
     bool clearError = false,
     String? query,
-    String? filterSegment,
+    Set<String>? filterSegments,
+    Set<String>? filterCategories,
+    Set<String>? filterStatuses,
     String? sort,
+    TradeFacets? facets,
     Set<String>? savedTradeIds,
     bool? saveTradeSuccess,
     bool clearSaveTradeSuccess = false,
@@ -104,8 +122,11 @@ class HomeState extends Equatable {
       unreadNotifications: unreadNotifications ?? this.unreadNotifications,
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
       query: query ?? this.query,
-      filterSegment: filterSegment ?? this.filterSegment,
+      filterSegments: filterSegments ?? this.filterSegments,
+      filterCategories: filterCategories ?? this.filterCategories,
+      filterStatuses: filterStatuses ?? this.filterStatuses,
       sort: sort ?? this.sort,
+      facets: facets ?? this.facets,
       savedTradeIds: savedTradeIds ?? this.savedTradeIds,
       saveTradeSuccess: clearSaveTradeSuccess
           ? null
@@ -135,8 +156,11 @@ class HomeState extends Equatable {
         unreadNotifications,
         errorMessage,
         query,
-        filterSegment,
+        filterSegments,
+        filterCategories,
+        filterStatuses,
         sort,
+        facets,
         savedTradeIds,
         saveTradeSuccess,
         saveTradeError,

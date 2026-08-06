@@ -1,3 +1,4 @@
+import '../../data/models/trade_facets_model.dart';
 import '../entities/home_subscription.dart';
 import '../entities/home_trade.dart';
 import '../entities/payment_transaction.dart';
@@ -21,12 +22,23 @@ abstract class HomeRepository {
     required int page,
     String? segment,
     String status = 'LIVE',
+    String? category,
     String? analystId,
   });
+
+  /// GET /trades/facets — filter options for the home feed.
+  Future<TradeFacets> fetchTradeFacets();
 
   Future<HomeTrade> fetchTrade(String tradeId);
 
   Future<List<HomeSubscription>> fetchSubscriptions();
+
+  /// POST /subscriptions/{id}/cancel — cancels an active subscription.
+  Future<void> cancelSubscription(
+    String subscriptionId, {
+    required String reason,
+  });
+
   Future<List<PaymentTransaction>> fetchPaymentTransactions();
 
   Future<bool> saveTrade(String tradeId);

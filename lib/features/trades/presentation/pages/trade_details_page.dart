@@ -17,6 +17,7 @@ import '../../../../core/widgets/common_button_widget.dart';
 import '../../../../core/widgets/sebi_verified_pill.dart';
 import '../../../../core/widgets/tapered_divider.dart';
 import '../../../../core/widgets/trade_signal_timeline.dart';
+import '../../../../core/widgets/trade_symbol_avatar.dart';
 import '../../../home/domain/entities/home_trade.dart';
 import '../../../home/domain/repositories/home_repository.dart';
 
@@ -49,6 +50,21 @@ String _modificationFieldLabel(String field) {
       .where((part) => part.isNotEmpty)
       .map((part) => '${part[0].toUpperCase()}${part.substring(1)}')
       .join(' ');
+}
+
+/// Prefer the trade's analyst display name over raw IDs (e.g. ANALYST_…).
+String _modificationAuthorLabel(String modifiedBy, HomeTrade? trade) {
+  final by = modifiedBy.trim();
+  final name = trade?.analystName?.trim() ?? '';
+  if (name.isEmpty) return by.isEmpty ? '—' : by;
+  if (by.isEmpty) return name;
+
+  final id = (trade?.analystId ?? '').trim();
+  final upper = by.toUpperCase();
+  final looksLikeId = by == id ||
+      upper.startsWith('ANALYST_') ||
+      upper.startsWith('USER_');
+  return looksLikeId ? name : by;
 }
 
 String _formatModifiedTargets(dynamic value) {
@@ -106,9 +122,12 @@ String _formatDate(DateTime? dt) {
 }
 
 class TradeDetailsPage extends StatefulWidget {
-  const TradeDetailsPage({super.key, this.trade});
+  const TradeDetailsPage({super.key, this.trade, this.tradeId});
 
   final HomeTrade? trade;
+
+  /// Used when opening from FCM / deep link without a full [HomeTrade].
+  final String? tradeId;
 
   @override
   State<TradeDetailsPage> createState() => _TradeDetailsPageState();
@@ -118,6 +137,14 @@ class _TradeDetailsPageState extends State<TradeDetailsPage> {
   StreamSubscription<Map<String, double>>? _pricesSubscription;
   late HomeTrade? _trade;
   bool _isLoadingDetails = false;
+
+  String? get _resolvedTradeId {
+    final fromTrade = _trade?.id.trim();
+    if (fromTrade != null && fromTrade.isNotEmpty) return fromTrade;
+    final fromQuery = widget.tradeId?.trim();
+    if (fromQuery != null && fromQuery.isNotEmpty) return fromQuery;
+    return null;
+  }
 
   @override
   void initState() {
@@ -134,7 +161,8 @@ class _TradeDetailsPageState extends State<TradeDetailsPage> {
   @override
   void didUpdateWidget(covariant TradeDetailsPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.trade?.id != widget.trade?.id) {
+    if (oldWidget.trade?.id != widget.trade?.id ||
+        oldWidget.tradeId != widget.tradeId) {
       _trade = widget.trade;
       final LivePricesService livePrices = getIt<LivePricesService>();
       livePrices.trackAdditional(<String>[widget.trade?.symbol ?? '']);
@@ -144,14 +172,15 @@ class _TradeDetailsPageState extends State<TradeDetailsPage> {
   }
 
   Future<void> _loadTradeDetails() async {
-    final String? tradeId = _trade?.id;
+    final String? tradeId = _resolvedTradeId;
     if (tradeId == null || tradeId.isEmpty) return;
 
     setState(() => _isLoadingDetails = true);
     try {
       final HomeTrade trade =
           await getIt<HomeRepository>().fetchTrade(tradeId);
-      if (!mounted || _trade?.id != tradeId) return;
+      if (!mounted) return;
+      if (_trade != null && _trade!.id != tradeId) return;
 
       final LivePricesService livePrices = getIt<LivePricesService>();
       setState(() {
@@ -161,7 +190,7 @@ class _TradeDetailsPageState extends State<TradeDetailsPage> {
       livePrices.trackAdditional(<String>[trade.symbol]);
       _applyLivePrices(livePrices.current);
     } catch (_) {
-      if (mounted && _trade?.id == tradeId) {
+      if (mounted && (_trade == null || _trade!.id == tradeId)) {
         setState(() => _isLoadingDetails = false);
       }
     }
@@ -191,9 +220,6 @@ class _TradeDetailsPageState extends State<TradeDetailsPage> {
     // Fallback values when no trade passed
     final symbol = t?.symbol ?? '—';
     final company = t?.companyName ?? t?.symbol ?? '—';
-    final initials = symbol.length >= 2
-        ? symbol.substring(0, 2).toUpperCase()
-        : symbol.toUpperCase();
 
     final currentPrice = t?.ltp ?? t?.entry ?? 0;
     final pnl = t == null
@@ -297,9 +323,13 @@ class _TradeDetailsPageState extends State<TradeDetailsPage> {
                               Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: <Widget>[
-                                  _SymbolAvatar(
-                                    initials: initials,
-                                    avatarUrl: analystAvatarUrl,
+                                  TradeSymbolAvatar(
+                                    symbol: symbol,
+                                    companyName: t?.companyName,
+                                    logoUrl: t?.logoUrl,
+                                    size: AppSize.r(context, 48),
+                                    circular: false,
+                                    borderRadius: AppSize.r(context, 14),
                                   ),
                                   SizedBox(width: AppSize.w(context, 12)),
                                   Expanded(
@@ -549,7 +579,10 @@ class _TradeDetailsPageState extends State<TradeDetailsPage> {
                           _isLoadingDetails
                               ? 'Loading actions...'
                               : modifications.isEmpty
-                                  ? 'No actions on this trade yet.'
+                                  ? (t?.state ==
+                                          HomeTradeState.manuallyClosed
+                                      ? 'This trade was manually closed.'
+                                      : 'No actions on this trade yet.')
                                   : 'This trade has been modified.',
                           style: TextStyleConstants.caption.copyWith(
                             fontSize: AppSize.sp(context, 12),
@@ -558,6 +591,45 @@ class _TradeDetailsPageState extends State<TradeDetailsPage> {
                           ),
                         ),
                         SizedBox(height: AppSize.h(context, 10)),
+                        if (t?.state == HomeTradeState.manuallyClosed &&
+                            modifications.isEmpty)
+                          Padding(
+                            padding: EdgeInsets.only(
+                              bottom: AppSize.h(context, 10),
+                            ),
+                            child: _SurfaceCard(
+                              child: Column(
+                                crossAxisAlignment:
+                                    CrossAxisAlignment.start,
+                                children: <Widget>[
+                                  _DetailRow(
+                                    label: 'Action',
+                                    value: 'Manually closed',
+                                    valueColor: ColorConstants.green,
+                                  ),
+                                  if (t?.entryTimestamp != null) ...<Widget>[
+                                    const TaperedHorizontalDivider(
+                                      verticalPadding: 10,
+                                    ),
+                                    _DetailRow(
+                                      label: 'Entry date & time',
+                                      value: _formatDate(t!.entryTimestamp),
+                                    ),
+                                  ],
+                                  if (t != null) ...<Widget>[
+                                    const TaperedHorizontalDivider(
+                                      verticalPadding: 10,
+                                    ),
+                                    _DetailRow(
+                                      label: 'NSE timestamp',
+                                      value: t.nseTimestamp
+                                          .toIso8601String(),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ),
                         ...modifications.map(
                           (mod) => Padding(
                             padding: EdgeInsets.only(
@@ -575,7 +647,10 @@ class _TradeDetailsPageState extends State<TradeDetailsPage> {
                                       verticalPadding: 10),
                                   _DetailRow(
                                     label: 'Modified by',
-                                    value: mod.modifiedBy,
+                                    value: _modificationAuthorLabel(
+                                      mod.modifiedBy,
+                                      t,
+                                    ),
                                   ),
                                   if (mod.reason.isNotEmpty) ...<Widget>[
                                     const TaperedHorizontalDivider(
@@ -699,8 +774,16 @@ class _TradeDetailsPageState extends State<TradeDetailsPage> {
                                 backgroundColor: ColorConstants.white,
                                 foregroundColor: ColorConstants.brandBlue,
                                 borderColor: ColorConstants.brandBlue,
-                                onPressed: () => context
-                                    .push(AppRoutingName.advisorProfile),
+                                onPressed: () {
+                                  final analystId = t?.analystId?.trim();
+                                  if (analystId == null || analystId.isEmpty) {
+                                    return;
+                                  }
+                                  context.push(
+                                    AppRoutingName.advisorProfile,
+                                    extra: analystId,
+                                  );
+                                },
                               ),
                             ],
                           ),
@@ -930,65 +1013,6 @@ class _SurfaceCard extends StatelessWidget {
         ],
       ),
       child: child,
-    );
-  }
-}
-
-class _SymbolAvatar extends StatelessWidget {
-  const _SymbolAvatar({required this.initials, this.avatarUrl});
-
-  final String initials;
-  final String? avatarUrl;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: AppSize.r(context, 48),
-      height: AppSize.r(context, 48),
-      alignment: Alignment.center,
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(AppSize.r(context, 14)),
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: <Color>[
-            ColorConstants.avatarBlueStart,
-            ColorConstants.avatarBlueEnd,
-          ],
-        ),
-        boxShadow: <BoxShadow>[
-          BoxShadow(
-            color: ColorConstants.brandBlue.withValues(alpha: 0.2),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: avatarUrl != null
-          ? Image.network(
-              avatarUrl!,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => _InitialsText(initials: initials),
-            )
-          : _InitialsText(initials: initials),
-    );
-  }
-}
-
-class _InitialsText extends StatelessWidget {
-  const _InitialsText({required this.initials});
-  final String initials;
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      initials,
-      style: TextStyleConstants.cardTitleSmall.copyWith(
-        color: ColorConstants.white,
-        fontSize: AppSize.sp(context, 14),
-        fontWeight: FontWeight.w700,
-      ),
     );
   }
 }

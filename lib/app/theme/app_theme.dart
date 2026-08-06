@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -10,7 +9,7 @@ class AppTheme {
   AppTheme._();
 
   static ThemeData get light {
-    final base = ThemeData(
+    return ThemeData(
       useMaterial3: true,
       brightness: Brightness.light,
       fontFamily: TextStyleConstants.fontFamilyBody,
@@ -86,8 +85,7 @@ class AppTheme {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: ColorConstants.white,
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
           borderSide: const BorderSide(color: ColorConstants.line),
@@ -98,8 +96,7 @@ class AppTheme {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
-          borderSide:
-              const BorderSide(color: ColorConstants.brandBlue, width: 1.5),
+          borderSide: const BorderSide(color: ColorConstants.brandBlue, width: 1.5),
         ),
         hintStyle: TextStyleConstants.bodyMedium.copyWith(
           color: ColorConstants.soft,
@@ -149,19 +146,6 @@ class AppTheme {
         ),
         titleTextStyle: TextStyleConstants.headlineSmall,
         contentTextStyle: TextStyleConstants.bodyMedium,
-      ),
-    );
-
-    if (!kIsWeb) return base;
-
-    // ── Web-specific overrides ──────────────────────────────────────────────
-    // Show pointer cursor for all interactive widgets so the app feels
-    // native to browser users. Also make the scrollbar always visible.
-    return base.copyWith(
-      scrollbarTheme: const ScrollbarThemeData(
-        thumbVisibility: WidgetStatePropertyAll(true),
-        thickness: WidgetStatePropertyAll(6),
-        radius: Radius.circular(4),
       ),
     );
   }

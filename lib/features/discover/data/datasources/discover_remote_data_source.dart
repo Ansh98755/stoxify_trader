@@ -89,6 +89,8 @@ class DiscoverRemoteDataSource {
     required String planId,
     String? batchId,
     String? couponCode,
+    double? amount,
+    double? discountAmount,
   }) async {
     final res = await _dio.post(
       '/subscriptions/',
@@ -96,6 +98,9 @@ class DiscoverRemoteDataSource {
         'plan_id': planId,
         'batch_id': batchId,
         'coupon_code': couponCode,
+        // Client-computed payable (rupees) after flat / percentage coupon cut.
+        'amount': amount,
+        'discount_amount': discountAmount,
       }),
     );
     if (res.statusCode != 200 && res.statusCode != 201) {
@@ -169,7 +174,12 @@ class DiscoverRemoteDataSource {
         .whereType<Map>()
         .map((e) => DiscoverAnalystModel.fromJson(e.cast<String, dynamic>()))
         .toList();
-    return items;
+    return _filterAnalysts(
+      items,
+      search: search,
+      segment: segment,
+      horizon: horizon,
+    );
   }
 
   Future<List<DiscoverBatchModel>> fetchBatches({
@@ -186,12 +196,12 @@ class DiscoverRemoteDataSource {
         'page': page,
         'limit': pageSize,
         'is_active': 'true',
-        // 'require_active_tier': 'true',
-        // 'sort': _mapBatchSort(sort),
-        // 'search': search,
-        // 'segments': segment,
-        // 'risk_levels': riskLevel,
-        // 'horizons': horizon,
+        'sort': _mapBatchSort(sort),
+        'search': search,
+        'segments': (segment != null && segment != 'All') ? segment : null,
+        'risk_levels':
+            (riskLevel != null && riskLevel != 'All') ? riskLevel : null,
+        'horizons': (horizon != null && horizon != 'All') ? horizon : null,
       }),
     );
     if (res.statusCode != 200) throw Exception('Failed to fetch batches');
@@ -200,7 +210,95 @@ class DiscoverRemoteDataSource {
         .whereType<Map>()
         .map((e) => DiscoverBatchModel.fromJson(e.cast<String, dynamic>()))
         .toList();
-    return items;
+    return _filterBatches(
+      items,
+      search: search,
+      segment: segment,
+      horizon: horizon,
+      riskLevel: riskLevel,
+    );
+  }
+
+  Set<String> _csvTokens(String? csv) {
+    if (csv == null || csv.trim().isEmpty || csv == 'All') {
+      return const <String>{};
+    }
+    return csv
+        .split(',')
+        .map((s) => s.trim().toUpperCase())
+        .where((s) => s.isNotEmpty && s != 'ALL')
+        .toSet();
+  }
+
+  bool _tokenMatch(String raw, Set<String> wanted) {
+    if (wanted.isEmpty) return true;
+    final value = raw.trim().toUpperCase();
+    if (value.isEmpty) return false;
+    final normalized = value.replaceAll('&', '').replaceAll(' ', '');
+    if (wanted.contains(value) || wanted.contains(normalized)) return true;
+    if ((value == 'FNO' || normalized == 'FNO' || normalized == 'FO') &&
+        (wanted.contains('FNO') ||
+            wanted.contains('FO') ||
+            wanted.contains('F&O'))) {
+      return true;
+    }
+    return false;
+  }
+
+  bool _listMatchesAny(List<String> values, Set<String> wanted) {
+    if (wanted.isEmpty) return true;
+    if (values.isEmpty) return false;
+    return values.any((v) => _tokenMatch(v, wanted));
+  }
+
+  /// Client-side name + multi-facet filter so wrong selections never surface
+  /// rows that ignore the multi-select API params.
+  List<DiscoverAnalystModel> _filterAnalysts(
+    List<DiscoverAnalystModel> items, {
+    String? search,
+    String? segment,
+    String? horizon,
+  }) {
+    final q = search?.trim().toLowerCase() ?? '';
+    final segments = _csvTokens(segment);
+    final horizons = _csvTokens(horizon);
+
+    return items.where((a) {
+      if (q.isNotEmpty && !a.name.toLowerCase().contains(q)) return false;
+      if (!_listMatchesAny(a.segmentsCovered, segments)) return false;
+      if (!_listMatchesAny(a.horizonsCovered, horizons)) return false;
+      return true;
+    }).toList();
+  }
+
+  List<DiscoverBatchModel> _filterBatches(
+    List<DiscoverBatchModel> items, {
+    String? search,
+    String? segment,
+    String? horizon,
+    String? riskLevel,
+  }) {
+    final q = search?.trim().toLowerCase() ?? '';
+    final segments = _csvTokens(segment);
+    final horizons = _csvTokens(horizon);
+    final risks = _csvTokens(riskLevel);
+
+    return items.where((b) {
+      if (q.isNotEmpty) {
+        final hitName = b.name.toLowerCase().contains(q);
+        final hitDesc = (b.description ?? '').toLowerCase().contains(q);
+        final hitTier =
+            b.tiers.any((t) => t.name.toLowerCase().contains(q));
+        if (!hitName && !hitDesc && !hitTier) return false;
+      }
+      if (!_listMatchesAny(b.segments, segments)) return false;
+      if (!_listMatchesAny(b.horizons, horizons)) return false;
+      if (risks.isNotEmpty) {
+        final risk = (b.riskLevel ?? '').toUpperCase();
+        if (risk.isEmpty || !risks.contains(risk)) return false;
+      }
+      return true;
+    }).toList();
   }
 
   String _mapAnalystSort(String? sort) {

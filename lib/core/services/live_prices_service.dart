@@ -1,14 +1,9 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
-
 import '../../features/home/data/datasources/market_data_remote_data_source.dart';
 import '../network/websocket_service.dart';
 
 const _kPollInterval = Duration(seconds: 15);
-// On web, also run a safety-net poll even when WS appears connected, because
-// the browser may silently drop the socket without firing onDone.
-const _kWebSafetyPollInterval = Duration(seconds: 20);
 
 /// Session-wide LTP cache merged from WebSocket updates and HTTP polling.
 class LivePricesService {
@@ -76,33 +71,9 @@ class LivePricesService {
   void _startOrUpdateTimer() {
     _timer?.cancel();
     if (!_webSocket.isConnected) {
-      // WS is down — poll aggressively.
       _timer = Timer.periodic(_kPollInterval, (_) => _poll());
-    } else if (kIsWeb) {
-      // On web keep a slower safety-net poll even while WS is connected,
-      // because browsers can silently drop the socket.
-      _timer = Timer.periodic(_kWebSafetyPollInterval, (_) => _pollWeb());
     } else {
       _timer = null;
-    }
-  }
-
-  /// Web-only: poll but don't gate on [_webSocket.isConnected] so we always
-  /// get fresh prices even if the browser silently killed the socket.
-  Future<void> _pollWeb() async {
-    if (_symbols.isEmpty) return;
-    final results = await _marketData.prices(_symbols.toList());
-    if (results.isEmpty) return;
-
-    var changed = false;
-    results.forEach((k, v) {
-      if (_current[k] != v) {
-        _current[k] = v;
-        changed = true;
-      }
-    });
-    if (changed) {
-      _controller.add(Map<String, double>.from(_current));
     }
   }
 

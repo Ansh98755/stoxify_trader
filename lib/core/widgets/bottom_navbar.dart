@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import '../constants/color_constants.dart';
 import '../constants/text_style_constants.dart';
 import '../utils/app_size.dart';
-import '../utils/responsive_layout.dart';
 
 class BottomNavbar extends StatelessWidget {
   const BottomNavbar({
@@ -43,9 +42,6 @@ class BottomNavbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Wide web uses the side drawer; phone web keeps bottom nav like the app.
-    if (isDesktopWeb(context)) return const SizedBox.shrink();
-
     return SafeArea(
       minimum: AppSize.insets(context, left: 12, right: 12, bottom: 12),
       child: Container(

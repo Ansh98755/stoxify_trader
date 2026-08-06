@@ -21,5 +21,6 @@ class PaymentTransaction {
   final double discountAmount;
   final DateTime? createdAt;
 
-  bool get isSuccessful => status.toUpperCase() == 'SUCCESS';
+  /// Anything other than an explicit failure is treated as positive (green).
+  bool get isSuccessful => status.toUpperCase() != 'FAILED';
 }

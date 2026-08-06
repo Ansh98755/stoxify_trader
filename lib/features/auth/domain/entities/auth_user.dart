@@ -103,7 +103,7 @@ class AuthUser {
       email: user['email'] as String?,
       profilePicUrl: user['profile_pic_url'] as String?,
       isNewUser: json['is_new_user'] as bool? ?? false,
-      interests: (user['interests'] as List?)?.cast<String>() ?? const [],
+      interests: _stringList(user['interests']),
       deletionCancelled: json['deletion_cancelled'] as bool? ?? false,
     );
   }
@@ -121,7 +121,7 @@ class AuthUser {
       userType: json['user_type'] as String?,
       email: json['email'] as String?,
       profilePicUrl: json['profile_pic_url'] as String?,
-      interests: (json['interests'] as List?)?.cast<String>() ?? const [],
+      interests: _stringList(json['interests']),
       lastLogin: _date(json['last_login']),
       failedLoginAttempts:
           (json['failed_login_attempts'] as num?)?.toInt() ?? 0,
@@ -148,6 +148,14 @@ class AuthUser {
 
   static DateTime? _date(dynamic value) =>
       value is String ? DateTime.tryParse(value) : null;
+
+  static List<String> _stringList(dynamic value) {
+    if (value is! List) return const [];
+    return value
+        .map((e) => e?.toString().trim() ?? '')
+        .where((e) => e.isNotEmpty)
+        .toList(growable: false);
+  }
 }
 
 class AuthStateHistoryEntry {

@@ -4,6 +4,7 @@ import '../../../../core/constants/color_constants.dart';
 import '../../../../core/constants/text_style_constants.dart';
 import '../../../../core/shimmer/shimmer_widgets.dart';
 import '../../../../core/utils/app_size.dart';
+import '../../../../core/utils/responsive_layout.dart';
 
 class HomeSubscriptionItem {
   const HomeSubscriptionItem({
@@ -133,7 +134,9 @@ class _SubscriptionCard extends StatelessWidget {
     final avatarSize = AppSize.r(context, 36);
 
     return SizedBox(
-      width: AppSize.w(context, 148),
+      width: ResponsiveLayout.useWebDesktopShell(context)
+          ? 200
+          : AppSize.w(context, 148),
       child: Material(
         color: ColorConstants.white,
         shape: RoundedRectangleBorder(

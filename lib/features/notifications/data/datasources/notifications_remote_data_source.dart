@@ -62,7 +62,9 @@ class NotificationsRemoteDataSource {
     }
   }
 
-  /// GET /notifications/?limit=1&unread_only=true — lightweight count fetch.
+  /// GET /notifications/?page=1&limit=1&read=false
+  /// Red-dot source of truth: only if the response includes any notification
+  /// objects (not total alone, which can be stale/wrong).
   Future<int> fetchUnreadCount() async {
     try {
       final res = await _dio.get<dynamic>(
@@ -75,9 +77,13 @@ class NotificationsRemoteDataSource {
       );
       if (res.statusCode == 401) throw const AuthFailure();
       if (res.statusCode == 403 || res.statusCode != 200) return 0;
-      final data = res.data;
-      if (data is! Map) return 0;
-      return (data['total'] as num?)?.toInt() ?? 0;
+      final data = (res.data as Map).cast<String, dynamic>();
+      final raw = (data['notifications'] as List?) ?? const <dynamic>[];
+      // Dot only when unread notification data is actually present.
+      if (raw.isEmpty) return 0;
+      final total = (data['total'] as num?)?.toInt();
+      if (total != null && total > 0) return total;
+      return raw.length;
     } on DioException catch (e) {
       _rethrowNetwork(e);
       rethrow;

@@ -40,6 +40,7 @@ class HomeTrade {
     this.pnlPercent,
     this.runningPnlPercent,
     this.batchName,
+    this.analystId,
     this.analystName,
     this.analystAvatarUrl,
     this.analystWinRate,
@@ -68,6 +69,7 @@ class HomeTrade {
   final double? pnlPercent;
   final double? runningPnlPercent;
   final String? batchName;
+  final String? analystId;
   final String? analystName;
   final String? analystAvatarUrl;
   final double? analystWinRate;
@@ -114,7 +116,7 @@ class HomeTrade {
       case HomeTradeState.slHit:
         return 'Stop Loss Hit';
       case HomeTradeState.manuallyClosed:
-        return 'Closed';
+        return 'Manually closed';
       case HomeTradeState.expired:
         return 'Expired';
       case HomeTradeState.live:
@@ -154,6 +156,7 @@ class HomeTrade {
     double? pnlPercent,
     double? runningPnlPercent,
     String? batchName,
+    String? analystId,
     String? analystName,
     String? analystAvatarUrl,
     double? analystWinRate,
@@ -183,6 +186,7 @@ class HomeTrade {
       pnlPercent: pnlPercent ?? this.pnlPercent,
       runningPnlPercent: runningPnlPercent ?? this.runningPnlPercent,
       batchName: batchName ?? this.batchName,
+      analystId: analystId ?? this.analystId,
       analystName: analystName ?? this.analystName,
       analystAvatarUrl: analystAvatarUrl ?? this.analystAvatarUrl,
       analystWinRate: analystWinRate ?? this.analystWinRate,

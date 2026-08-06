@@ -59,7 +59,15 @@ class LoginBloc extends Bloc<LoginEvent, LoginState> {
   ) async {
     if (state.isSubmitting) return;
 
-    emit(state.copyWith(isSubmitting: true, clearError: true));
+    // Dialog already closed — clear the entry flag and show network progress
+    // only while verify is in flight.
+    emit(
+      state.copyWith(
+        isSubmitting: true,
+        isOtpEntryActive: false,
+        clearError: true,
+      ),
+    );
     try {
       final user = await _authRepository.verifyOtp(
         phoneE164: state.e164Phone,
@@ -68,6 +76,7 @@ class LoginBloc extends Bloc<LoginEvent, LoginState> {
       emit(
         state.copyWith(
           isSubmitting: false,
+          isOtpEntryActive: false,
           verifySuccessCount: state.verifySuccessCount + 1,
           isNewUser: user.isNewUser,
         ),
@@ -89,19 +98,19 @@ class LoginBloc extends Bloc<LoginEvent, LoginState> {
   ) async {
     if (!state.isPhoneValid || state.isSubmitting) return;
 
-    emit(state.copyWith(isSubmitting: true, clearError: true));
+    // Do not flip isSubmitting for resend — the OTP dialog stays open and
+    // a full-screen loader on the page beneath would look like a hang.
     try {
       await _authRepository.requestOtp(state.e164Phone);
       emit(
         state.copyWith(
-          isSubmitting: false,
           otpSentCount: state.otpSentCount + 1,
+          clearError: true,
         ),
       );
     } catch (e) {
       emit(
         state.copyWith(
-          isSubmitting: false,
           errorMessage: _messageOf(e),
         ),
       );
@@ -109,7 +118,12 @@ class LoginBloc extends Bloc<LoginEvent, LoginState> {
   }
 
   void _onOtpEntryClosed(LoginOtpEntryClosed event, Emitter<LoginState> emit) {
-    emit(state.copyWith(isOtpEntryActive: false));
+    emit(
+      state.copyWith(
+        isSubmitting: false,
+        isOtpEntryActive: false,
+      ),
+    );
   }
 
   String _messageOf(Object e) {

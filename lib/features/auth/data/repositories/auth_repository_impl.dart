@@ -1,8 +1,10 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart'
-    show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 
+import '../../../../core/notifications/fcm_service.dart';
+import '../../../../core/platform/app_platform.dart';
 import '../../../../core/storage/secure_storage.dart';
 import '../../domain/entities/auth_user.dart';
 import '../../domain/repositories/auth_repository.dart';
@@ -20,24 +22,8 @@ class AuthRepositoryImpl implements AuthRepository {
   AuthUser? _cachedUser;
   Future<AuthUser>? _getMeRequest;
 
-  String get _deviceType {
-    if (kIsWeb) return 'WEB';
-    if (defaultTargetPlatform == TargetPlatform.iOS) return 'IOS';
-    return 'ANDROID';
-  }
-
-  String get _deviceName {
-    if (kIsWeb) return 'StoXify Web';
-    final os = switch (defaultTargetPlatform) {
-      TargetPlatform.iOS => 'iOS',
-      TargetPlatform.android => 'Android',
-      TargetPlatform.macOS => 'macOS',
-      TargetPlatform.windows => 'Windows',
-      TargetPlatform.linux => 'Linux',
-      _ => 'Unknown',
-    };
-    return 'StoXify $os';
-  }
+  String get _deviceType => AppPlatform.deviceType;
+  String get _deviceName => AppPlatform.deviceName;
 
   @override
   Future<void> requestOtp(String phoneE164) async {
@@ -105,6 +91,10 @@ class AuthRepositoryImpl implements AuthRepository {
     if (user.isNewUser) {
       await _storage.write(SecureStorage.isNewUser, 'true');
     }
+    // Don't block login navigation on push-token registration.
+    unawaited(
+      FcmService.instance.registerTokenForSession().catchError((_) => null),
+    );
     return user;
   }
 
@@ -124,14 +114,7 @@ class AuthRepositoryImpl implements AuthRepository {
   Future<AuthUser> _fetchMe() async {
     final res = await _dio.get('/users/me');
     if (res.statusCode != 200) throw _errorFrom(res);
-    final data = res.data;
-    if (data is! Map) {
-      throw AuthException(
-        'INVALID_RESPONSE',
-        'Profile response was not JSON',
-      );
-    }
-    final user = AuthUser.fromProfile(data.cast<String, dynamic>());
+    final user = AuthUser.fromProfile(res.data as Map<String, dynamic>);
     _cachedUser = user;
     return user;
   }
@@ -240,13 +223,7 @@ class AuthRepositoryImpl implements AuthRepository {
   Future<String> requestWsChannel() async {
     final res = await _dio.post('/auth/request-ws-channel');
     if (res.statusCode != 200) throw _errorFrom(res);
-    final data = res.data;
-    if (data is! Map) {
-      throw AuthException(
-        'INVALID_RESPONSE',
-        'Expected JSON channel response, got ${data.runtimeType}',
-      );
-    }
+    final data = res.data as Map<String, dynamic>;
     final channelId = data['channel_id'];
     if (channelId is! String) {
       throw AuthException('INVALID_RESPONSE', 'Invalid channel ID received');
@@ -256,6 +233,9 @@ class AuthRepositoryImpl implements AuthRepository {
 
   @override
   Future<void> logout() async {
+    try {
+      await FcmService.instance.unregisterForSession();
+    } catch (_) {}
     try {
       await _dio.post('/auth/logout');
     } catch (_) {

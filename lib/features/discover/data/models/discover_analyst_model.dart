@@ -12,6 +12,7 @@ class DiscoverAnalystModel {
     this.avgPnlPercent = 0,
     this.totalSubscribers = 0,
     this.totalTrades = 0,
+    this.experienceYears = 0,
   });
 
   final String userId;
@@ -26,6 +27,7 @@ class DiscoverAnalystModel {
   final double avgPnlPercent;
   final int totalSubscribers;
   final int totalTrades;
+  final int experienceYears;
 
   factory DiscoverAnalystModel.fromJson(Map<String, dynamic> json) {
     final perf =
@@ -51,6 +53,7 @@ class DiscoverAnalystModel {
       avgPnlPercent: (perf['average_pnl_percent'] as num?)?.toDouble() ?? 0,
       totalSubscribers: (perf['total_subscribers'] as num?)?.toInt() ?? 0,
       totalTrades: totalTrades,
+      experienceYears: (json['experience_years'] as num?)?.toInt() ?? 0,
     );
   }
 

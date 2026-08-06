@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 /// Emits true when the device has any network interface (wifi / mobile / ethernet).
 /// Emits false when all interfaces are gone.
@@ -20,6 +21,12 @@ class ConnectivityService {
   }
 
   static bool _hasConnection(List<ConnectivityResult> results) {
+    // Browser-only: avoid false offline overlays from flaky browser APIs.
+    if (kIsWeb) {
+      if (results.isEmpty) return true;
+      return !results.every((r) => r == ConnectivityResult.none);
+    }
+    // Mobile path — identical to pre-web checks (no `other`).
     return results.any(
       (r) =>
           r == ConnectivityResult.wifi ||

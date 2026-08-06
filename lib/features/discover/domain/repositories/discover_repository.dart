@@ -18,6 +18,8 @@ abstract class DiscoverRepository {
     required String planId,
     String? batchId,
     String? couponCode,
+    double? amount,
+    double? discountAmount,
   });
   Future<void> verifySubscriptionPayment({
     required String subscriptionId,

@@ -4,32 +4,34 @@ import 'package:flutter/material.dart';
 
 import '../constants/color_constants.dart';
 
-/// StoXify animated app loader.
+/// StoXify app loader — simple orbiting dots.
 ///
-/// A circular arrangement of dots that orbit, trail, and glow with
-/// brandBlue / navy / white accents — no external packages required.
+/// Quiet monochrome trail, small dots, no glow/pulse chrome.
 ///
-/// Usage:
 /// ```dart
-/// const AppLoader()                        // default 80 × 80
-/// AppLoader(size: 120)                     // bigger
-/// AppLoader(showBackground: false)         // transparent bg
+/// const AppLoader()
+/// AppLoader(size: 48)
+/// AppLoader(showBackground: false)
 /// ```
 class AppLoader extends StatefulWidget {
   const AppLoader({
     super.key,
-    this.size = 80.0,
-    this.backgroundColor = ColorConstants.navy,
-    this.showBackground = true,
+    this.size = 48.0,
+    this.dotColor = ColorConstants.ink,
+    this.backgroundColor = ColorConstants.white,
+    this.showBackground = false,
   });
 
-  /// Overall widget diameter (dots are sized proportionally).
+  /// Overall diameter.
   final double size;
 
-  /// Background circle colour.
+  /// Dot colour (opacity still fades along the trail).
+  final Color dotColor;
+
+  /// Optional soft disc behind the ring.
   final Color backgroundColor;
 
-  /// Whether to paint the circular disc behind the dots.
+  /// Off by default for a cleaner look.
   final bool showBackground;
 
   @override
@@ -45,7 +47,7 @@ class _AppLoaderState extends State<AppLoader>
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1800),
+      duration: const Duration(milliseconds: 1100),
     )..repeat();
   }
 
@@ -68,6 +70,7 @@ class _AppLoaderState extends State<AppLoader>
               progress: _controller.value,
               showBackground: widget.showBackground,
               backgroundColor: widget.backgroundColor,
+              dotColor: widget.dotColor,
             ),
           );
         },
@@ -76,170 +79,76 @@ class _AppLoaderState extends State<AppLoader>
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Painter
-// ─────────────────────────────────────────────────────────────────────────────
-
 class _AppLoaderPainter extends CustomPainter {
   const _AppLoaderPainter({
     required this.progress,
     required this.showBackground,
     required this.backgroundColor,
+    required this.dotColor,
   });
 
   final double progress;
   final bool showBackground;
   final Color backgroundColor;
+  final Color dotColor;
 
-  static const int _dotCount = 10;
-
-  // Colour palette cycles across the dot trail.
-  static const List<Color> _palette = <Color>[
-    ColorConstants.brandBlue,  // leader — vivid blue
-    Color(0xFF4F8CFF),          // lighter blue
-    ColorConstants.white,       // white flash
-    Color(0xFF8AB4FF),          // soft periwinkle
-  ];
+  static const int _dotCount = 8;
 
   @override
   void paint(Canvas canvas, Size size) {
     final double cx = size.width / 2;
     final double cy = size.height / 2;
-    final double orbitR = size.width * 0.36;
-    final double maxDotR = size.width * 0.072;
+    final double orbitR = size.width * 0.34;
+    // Small sober dots — ~4% of diameter for the leader.
+    final double maxDotR = size.width * 0.04;
 
-    if (showBackground) _paintBackground(canvas, cx, cy, size.width / 2);
-    _paintTrack(canvas, cx, cy, orbitR);
-    for (int i = _dotCount - 1; i >= 0; i--) {
-      // Paint tail-first so leader renders on top.
-      _paintDot(canvas, i, cx, cy, orbitR, maxDotR);
+    if (showBackground) {
+      canvas.drawCircle(
+        Offset(cx, cy),
+        size.width / 2,
+        Paint()..color = backgroundColor,
+      );
     }
-    _paintCenter(canvas, cx, cy, size.width);
-  }
 
-  void _paintBackground(Canvas canvas, double cx, double cy, double r) {
-    canvas.drawCircle(Offset(cx, cy), r, Paint()..color = backgroundColor);
-
-    // Subtle radial depth overlay.
+    // Faint guide ring.
     canvas.drawCircle(
       Offset(cx, cy),
-      r,
-      Paint()
-        ..shader = RadialGradient(
-          colors: <Color>[
-            ColorConstants.brandBlue.withValues(alpha: 0.18),
-            Colors.transparent,
-          ],
-        ).createShader(Rect.fromCircle(center: Offset(cx, cy), radius: r)),
-    );
-  }
-
-  void _paintTrack(Canvas canvas, double cx, double cy, double r) {
-    canvas.drawCircle(
-      Offset(cx, cy),
-      r,
+      orbitR,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.0
-        ..color = ColorConstants.brandBlue.withValues(alpha: 0.18),
+        ..strokeWidth = 1
+        ..color = ColorConstants.line,
     );
-  }
 
-  void _paintDot(Canvas canvas, int i, double cx, double cy,
-      double orbitR, double maxDotR) {
-    final double phaseOffset = i / _dotCount;
-    final double angle =
-        (progress - phaseOffset) * 2 * math.pi - math.pi / 2;
+    // Tail first, leader last so head sits on top.
+    for (int i = _dotCount - 1; i >= 0; i--) {
+      final double phaseOffset = i / _dotCount;
+      final double angle =
+          (progress - phaseOffset) * 2 * math.pi - math.pi / 2;
+      final double x = cx + orbitR * math.cos(angle);
+      final double y = cy + orbitR * math.sin(angle);
 
-    final double x = cx + orbitR * math.cos(angle);
-    final double y = cy + orbitR * math.sin(angle);
+      final double t = i / (_dotCount - 1);
+      final double sizeFactor = math.max(0.35, 1.0 - t * 0.55);
+      final double opacity = math.max(0.18, 1.0 - t * 0.82);
 
-    // Leader is biggest; tail shrinks to 25 %.
-    final double sizeFactor =
-        math.max(0.25, 1.0 - i / (_dotCount - 1) * 0.75);
-    final double dotR = maxDotR * sizeFactor;
-
-    // Leader is fully opaque; tail fades to 12 %.
-    final double opacity =
-        math.max(0.12, 1.0 - i / (_dotCount - 1) * 0.88);
-
-    final Color baseColor = _palette[i % _palette.length];
-
-    // Glow halo on the first 3 dots.
-    if (i < 3) {
-      final double glowR = dotR * (2.2 - i * 0.3);
-      final double glowAlpha = opacity * 0.25 * (1.0 - i * 0.25);
       canvas.drawCircle(
         Offset(x, y),
-        glowR,
-        Paint()
-          ..color = ColorConstants.brandBlue.withValues(alpha: glowAlpha)
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, glowR * 0.8),
+        maxDotR * sizeFactor,
+        Paint()..color = dotColor.withValues(alpha: opacity),
       );
     }
-
-    // Main dot.
-    canvas.drawCircle(
-      Offset(x, y),
-      dotR,
-      Paint()..color = baseColor.withValues(alpha: opacity),
-    );
-
-    // Specular highlight on the leader only.
-    if (i == 0) {
-      canvas.drawCircle(
-        Offset(x - dotR * 0.28, y - dotR * 0.28),
-        dotR * 0.32,
-        Paint()..color = ColorConstants.white.withValues(alpha: 0.75),
-      );
-    }
-  }
-
-  void _paintCenter(Canvas canvas, double cx, double cy, double size) {
-    final double innerR = size * 0.14;
-    final double pulseScale = 1.0 + 0.18 * math.sin(progress * 2 * math.pi);
-
-    // Outer pulse halo.
-    canvas.drawCircle(
-      Offset(cx, cy),
-      innerR * pulseScale * 1.55,
-      Paint()
-        ..color = ColorConstants.brandBlue.withValues(alpha: 0.12)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
-    );
-
-    // Inner gradient disc.
-    canvas.drawCircle(
-      Offset(cx, cy),
-      innerR,
-      Paint()
-        ..shader = const RadialGradient(
-          colors: <Color>[
-            ColorConstants.brandBlue,
-            ColorConstants.navy,
-          ],
-        ).createShader(
-          Rect.fromCircle(center: Offset(cx, cy), radius: innerR),
-        ),
-    );
-
-    // White centre dot.
-    canvas.drawCircle(
-      Offset(cx, cy),
-      innerR * 0.32,
-      Paint()..color = ColorConstants.white.withValues(alpha: 0.9),
-    );
   }
 
   @override
-  bool shouldRepaint(_AppLoaderPainter old) => old.progress != progress;
+  bool shouldRepaint(_AppLoaderPainter old) =>
+      old.progress != progress ||
+      old.showBackground != showBackground ||
+      old.backgroundColor != backgroundColor ||
+      old.dotColor != dotColor;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Full-screen overlay variant
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Drop this anywhere to show a full-screen loading overlay.
+/// Full-screen loading overlay with a light barrier and compact loader.
 ///
 /// ```dart
 /// if (isLoading) const AppLoaderOverlay(),
@@ -247,8 +156,8 @@ class _AppLoaderPainter extends CustomPainter {
 class AppLoaderOverlay extends StatelessWidget {
   const AppLoaderOverlay({
     super.key,
-    this.loaderSize = 88.0,
-    this.barrierOpacity = 0.55,
+    this.loaderSize = 44.0,
+    this.barrierOpacity = 0.28,
   });
 
   final double loaderSize;
@@ -257,9 +166,28 @@ class AppLoaderOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ColoredBox(
-      color: ColorConstants.navy.withValues(alpha: barrierOpacity),
+      color: ColorConstants.ink.withValues(alpha: barrierOpacity),
       child: Center(
-        child: AppLoader(size: loaderSize),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: ColorConstants.white,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: <BoxShadow>[
+              BoxShadow(
+                color: ColorConstants.shadowSoft.withValues(alpha: 0.08),
+                blurRadius: 16,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: AppLoader(
+              size: loaderSize,
+              showBackground: false,
+            ),
+          ),
+        ),
       ),
     );
   }

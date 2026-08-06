@@ -32,15 +32,20 @@ final class HomeSearchChanged extends HomeEvent {
 
 final class HomeFiltersChanged extends HomeEvent {
   const HomeFiltersChanged({
-    required this.segment,
+    required this.segments,
+    required this.categories,
+    required this.statuses,
     required this.sort,
   });
 
-  final String segment;
+  final Set<String> segments;
+  final Set<String> categories;
+  final Set<String> statuses;
   final String sort;
 
   @override
-  List<Object?> get props => <Object?>[segment, sort];
+  List<Object?> get props =>
+      <Object?>[segments, categories, statuses, sort];
 }
 
 final class HomeLivePricesUpdated extends HomeEvent {
@@ -72,6 +77,16 @@ final class HomeTradeToggleSaved extends HomeEvent {
 
   @override
   List<Object?> get props => <Object?>[tradeId];
+}
+
+/// Syncs bookmark state from another screen (e.g. Trades) without re-calling the API.
+final class HomeSavedTradeIdsUpdated extends HomeEvent {
+  const HomeSavedTradeIdsUpdated(this.savedTradeIds);
+
+  final Set<String> savedTradeIds;
+
+  @override
+  List<Object?> get props => <Object?>[savedTradeIds];
 }
 
 /// Clears saveTradeSuccess / saveTradeError after the page has shown the flushbar.

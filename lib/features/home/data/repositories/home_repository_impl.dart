@@ -4,16 +4,19 @@ import '../../domain/entities/home_trade.dart';
 import '../../domain/entities/payment_transaction.dart';
 import '../../domain/repositories/home_repository.dart';
 import '../datasources/home_remote_data_source.dart';
+import '../models/trade_facets_model.dart';
 
 // ── TTL constants ─────────────────────────────────────────────────────────────
 // Subscriptions change only on purchase / cancellation — 5 min is generous.
 // Saved trade IDs change on user action — updated locally after mutations.
 // Analyst-specific feed (LIVE,CLOSED trades for a given analyst) — 5 min.
 // These trades don't change in real-time like the home feed does.
+// Trade facets (filter options) change infrequently.
 
 const _ttlSubscriptions = Duration(minutes: 5);
 const _ttlSavedIds = Duration(minutes: 5);
 const _ttlAnalystFeed = Duration(minutes: 5);
+const _ttlTradeFacets = Duration(minutes: 30);
 
 // Keyed by analystId + page + status so different callers don't collide.
 String _analystFeedKey(String analystId, int page, String status) =>
@@ -27,6 +30,7 @@ class HomeRepositoryImpl implements HomeRepository {
   final _subscriptionsCache =
       InMemoryCache<String, List<HomeSubscription>>();
   final _savedIdsCache = InMemoryCache<String, Set<String>>();
+  final _tradeFacetsCache = InMemoryCache<String, TradeFacets>();
 
   // Only analyst-scoped feed pages are cached. The main home feed (no
   // analystId) is always live and must never be cached.
@@ -34,6 +38,7 @@ class HomeRepositoryImpl implements HomeRepository {
 
   static const _kSubscriptions = 'subscriptions';
   static const _kSavedIds = 'saved_ids';
+  static const _kTradeFacets = 'trade_facets';
 
   // ── Feed ──────────────────────────────────────────────────────────────────
 
@@ -42,6 +47,7 @@ class HomeRepositoryImpl implements HomeRepository {
     required int page,
     String? segment,
     String status = 'LIVE',
+    String? category,
     String? analystId,
   }) {
     // Only cache analyst-scoped requests (detail screens).
@@ -55,6 +61,7 @@ class HomeRepositoryImpl implements HomeRepository {
           page: page,
           segment: segment,
           status: status,
+          category: category,
           analystId: analystId,
         ),
       );
@@ -65,6 +72,16 @@ class HomeRepositoryImpl implements HomeRepository {
       page: page,
       segment: segment,
       status: status,
+      category: category,
+    );
+  }
+
+  @override
+  Future<TradeFacets> fetchTradeFacets() {
+    return _tradeFacetsCache.get(
+      key: _kTradeFacets,
+      ttl: _ttlTradeFacets,
+      fetch: _remote.fetchTradeFacets,
     );
   }
 
@@ -86,6 +103,15 @@ class HomeRepositoryImpl implements HomeRepository {
   }
 
   @override
+  Future<void> cancelSubscription(
+    String subscriptionId, {
+    required String reason,
+  }) async {
+    await _remote.cancelSubscription(subscriptionId, reason: reason);
+    invalidateSubscriptions();
+  }
+
+  @override
   Future<List<PaymentTransaction>> fetchPaymentTransactions() =>
       _remote.fetchPaymentTransactions();
 
@@ -103,10 +129,11 @@ class HomeRepositoryImpl implements HomeRepository {
   @override
   Future<bool> saveTrade(String tradeId) async {
     final result = await _remote.saveTrade(tradeId);
+    final current = _savedIdsCache.contains(_kSavedIds)
+        ? await fetchSavedTradeIds()
+        : <String>{};
+    // Persist optimistic set even when API omits `saved: true`.
     if (result) {
-      final current = _savedIdsCache.contains(_kSavedIds)
-          ? await fetchSavedTradeIds()
-          : <String>{};
       _savedIdsCache.write(
         _kSavedIds,
         {...current, tradeId},
@@ -119,16 +146,16 @@ class HomeRepositoryImpl implements HomeRepository {
   @override
   Future<bool> unsaveTrade(String tradeId) async {
     final result = await _remote.unsaveTrade(tradeId);
-    if (result) {
-      final current = _savedIdsCache.contains(_kSavedIds)
-          ? await fetchSavedTradeIds()
-          : <String>{};
-      _savedIdsCache.write(
-        _kSavedIds,
-        current.where((id) => id != tradeId).toSet(),
-        ttl: _ttlSavedIds,
-      );
-    }
+    // API returns `saved: false` on success. Always drop the id after a
+    // successful DELETE (no throw), not only when `result` is true.
+    final current = _savedIdsCache.contains(_kSavedIds)
+        ? await fetchSavedTradeIds()
+        : <String>{};
+    _savedIdsCache.write(
+      _kSavedIds,
+      current.where((id) => id != tradeId).toSet(),
+      ttl: _ttlSavedIds,
+    );
     return result;
   }
 
@@ -161,6 +188,7 @@ class HomeRepositoryImpl implements HomeRepository {
   void clearAll() {
     _subscriptionsCache.clear();
     _savedIdsCache.clear();
+    _tradeFacetsCache.clear();
     _analystFeedCache.clear();
   }
 }

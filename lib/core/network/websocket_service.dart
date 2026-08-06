@@ -2,18 +2,17 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
-import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:flutter/widgets.dart';
-import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../../features/auth/domain/repositories/auth_repository.dart';
 import '../storage/secure_storage.dart';
 import 'api_client.dart';
+import 'live_socket.dart';
 
 /// Keeps a single live-updates socket open for the app's lifetime.
 ///
-/// Uses [WebSocketChannel] from the `web_socket_channel` package so it works
-/// on both native (dart:io) and web (dart:html / dart:js_interop) platforms.
+/// Mobile still uses `dart:io` WebSocket (see [live_socket_io.dart]).
+/// Web uses browser sockets (see [live_socket_web.dart]).
 class WebSocketService with WidgetsBindingObserver {
   WebSocketService({
     required this.authRepository,
@@ -25,8 +24,8 @@ class WebSocketService with WidgetsBindingObserver {
   final AuthRepository authRepository;
   final SecureStorage storage;
 
-  WebSocketChannel? _channel;
-  StreamSubscription<dynamic>? _channelSub;
+  LiveSocket? _socket;
+  StreamSubscription<dynamic>? _sub;
   Timer? _pingTimer;
   Timer? _reconnectTimer;
   bool _isDisposed = false;
@@ -44,10 +43,7 @@ class WebSocketService with WidgetsBindingObserver {
   Stream<Map<String, dynamic>> get notificationUpdates =>
       _notificationController.stream;
 
-  /// True when the channel exists and the sink has not been closed.
-  /// [WebSocketChannel] does not expose a readyState, so we track state
-  /// ourselves via [_connecting] and [_cleanup].
-  bool get isConnected => _channel != null && !_connecting;
+  bool get isConnected => _socket != null && _socket!.isOpen;
 
   Future<void> connect() async {
     if (_connecting || isConnected || _isDisposed) return;
@@ -62,35 +58,23 @@ class WebSocketService with WidgetsBindingObserver {
 
       final channelId = await authRepository.requestWsChannel();
 
-      // On web the browser enforces same-origin WSS rules; point directly at
-      // the backend so the connection does not go through the Vercel proxy
-      // (Vercel's Edge Network does not forward WebSocket upgrades for free
-      // plans and the /api rewrite is HTTP-only).
-      final wsBase = kIsWeb
-          ? 'wss://stoxify-gateway.thankfulriver-811030ea.centralindia.azurecontainerapps.io'
-          : apiBaseUrl
-              .replaceAll('https://', 'wss://')
-              .replaceAll('http://', 'ws://');
-
-      final wsUrl = '$wsBase/ws/?channel_id=$channelId';
+      final base = apiBaseUrl
+          .replaceAll('https://', 'wss://')
+          .replaceAll('http://', 'ws://');
+      final wsUrl = '$base/ws/?channel_id=$channelId';
 
       debugPrint('[WS] Connecting to $wsUrl');
-
-      final uri = Uri.parse(wsUrl);
-      _channel = WebSocketChannel.connect(uri);
-
-      // On web, WebSocketChannel.connect() returns synchronously but the
-      // handshake is async. `ready` resolves once the connection is open or
-      // throws if it fails.
-      await _channel!.ready.timeout(const Duration(seconds: 10));
-
+      _socket = await connectLiveSocket(
+        wsUrl,
+        timeout: const Duration(seconds: 10),
+      );
       _reconnectAttempts = 0;
       _connecting = false;
 
       debugPrint('[WS] *********** Connected successfully *************');
       _startPing();
 
-      _channelSub = _channel!.stream.listen(
+      _sub = _socket!.stream.listen(
         _onMessage,
         onDone: _onClose,
         onError: _onError,
@@ -99,7 +83,10 @@ class WebSocketService with WidgetsBindingObserver {
     } catch (e) {
       debugPrint('[WS] Connection error: $e');
       _connecting = false;
-      _channel = null;
+      // Match prior mobile behavior: drop handle and reconnect (do not force-close twice).
+      unawaited(_sub?.cancel());
+      _sub = null;
+      _socket = null;
       _scheduleReconnect();
     }
   }
@@ -174,7 +161,7 @@ class WebSocketService with WidgetsBindingObserver {
     _pingTimer?.cancel();
     _pingTimer = Timer.periodic(const Duration(seconds: 25), (_) {
       if (isConnected) {
-        _channel!.sink.add(jsonEncode({'type': 'ping'}));
+        _socket!.add(jsonEncode({'type': 'ping'}));
       }
     });
   }
@@ -182,15 +169,15 @@ class WebSocketService with WidgetsBindingObserver {
   void _cleanup() {
     _pingTimer?.cancel();
     _pingTimer = null;
-    _channelSub?.cancel();
-    _channelSub = null;
-    _channel = null;
+    unawaited(_sub?.cancel());
+    _sub = null;
+    _socket = null;
   }
 
   void disconnect() {
-    final channel = _channel;
+    final socket = _socket;
     _cleanup();
-    channel?.sink.close();
+    unawaited(socket?.close());
   }
 
   void dispose() {
