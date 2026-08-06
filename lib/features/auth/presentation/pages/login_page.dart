@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -286,8 +287,8 @@ class _LoginHero extends StatelessWidget {
   }
 }
 
-/// Phone input: one full-height row so +91 / hint / digits share the same
-/// vertical center on mobile and web (no platform Transform nudges).
+/// Phone input — mobile and web use different vertical strategies because
+/// Flutter web TextField / font metrics top-bias content inside a stretched field.
 class _PhoneInputField extends StatelessWidget {
   const _PhoneInputField({
     required this.focused,
@@ -308,17 +309,6 @@ class _PhoneInputField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final TextStyle textStyle = TextStyleConstants.bodyMedium.copyWith(
-      color: ColorConstants.ink,
-      fontWeight: FontWeight.w500,
-      fontSize: _fontSize,
-      height: 1.2,
-      leadingDistribution: TextLeadingDistribution.even,
-    );
-    final TextStyle hintStyle = textStyle.copyWith(
-      color: ColorConstants.ink.withValues(alpha: 0.32),
-    );
-
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
       height: _height,
@@ -339,64 +329,155 @@ class _PhoneInputField extends StatelessWidget {
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            Center(
-              child: Text(
-                '+91',
-                style: textStyle.copyWith(fontWeight: FontWeight.w600),
-              ),
-            ),
-            const SizedBox(width: 6),
-            Center(
-              child: Container(
-                width: 1,
-                height: _fontSize,
-                color: ColorConstants.navy.withValues(alpha: 0.7),
-              ),
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: TextField(
-                controller: controller,
-                focusNode: focusNode,
-                keyboardType: TextInputType.phone,
-                maxLines: 1,
-                style: textStyle,
-                textAlignVertical: TextAlignVertical.center,
-                cursorColor: ColorConstants.brandBlue,
-                cursorWidth: 2,
-                cursorHeight: _fontSize,
-                inputFormatters: <TextInputFormatter>[
-                  FilteringTextInputFormatter.digitsOnly,
-                  LengthLimitingTextInputFormatter(10),
-                ],
-                decoration: InputDecoration(
-                  hintText: '98765 43210',
-                  hintStyle: hintStyle,
-                  isDense: true,
-                  filled: false,
-                  fillColor: ColorConstants.transparent,
-                  // Symmetric vertical padding inside the 48px shell so the
-                  // editable line sits in the geometric middle on all platforms.
-                  contentPadding: const EdgeInsets.symmetric(vertical: 14),
-                  border: InputBorder.none,
-                  enabledBorder: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                  disabledBorder: InputBorder.none,
-                  errorBorder: InputBorder.none,
-                  focusedErrorBorder: InputBorder.none,
-                ),
-                onChanged: onChanged,
-                onSubmitted: (_) => onSubmitted(),
-                onTapOutside: (_) => focusNode.unfocus(),
-              ),
-            ),
-          ],
-        ),
+        child: kIsWeb ? _buildWebRow() : _buildMobileRow(),
       ),
     );
+  }
+
+  TextStyle get _textStyle => TextStyleConstants.bodyMedium.copyWith(
+        color: ColorConstants.ink,
+        fontWeight: FontWeight.w500,
+        fontSize: _fontSize,
+        height: 1.0,
+        leadingDistribution: TextLeadingDistribution.even,
+      );
+
+  TextStyle get _hintStyle => _textStyle.copyWith(
+        color: ColorConstants.ink.withValues(alpha: 0.32),
+      );
+
+  static const StrutStyle _strut = StrutStyle(
+    fontSize: _fontSize,
+    height: 1.0,
+    forceStrutHeight: true,
+    leadingDistribution: TextLeadingDistribution.even,
+  );
+
+  /// Mobile: stretch + symmetric padding (already correct on devices).
+  Widget _buildMobileRow() {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Center(
+          child: Text(
+            '+91',
+            style: _textStyle.copyWith(fontWeight: FontWeight.w600),
+            strutStyle: _strut,
+          ),
+        ),
+        const SizedBox(width: 6),
+        Center(
+          child: Container(
+            width: 1,
+            height: _fontSize,
+            color: ColorConstants.navy.withValues(alpha: 0.7),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: TextField(
+            controller: controller,
+            focusNode: focusNode,
+            keyboardType: TextInputType.phone,
+            maxLines: 1,
+            style: _textStyle,
+            strutStyle: _strut,
+            textAlignVertical: TextAlignVertical.center,
+            cursorColor: ColorConstants.brandBlue,
+            cursorWidth: 2,
+            cursorHeight: _fontSize,
+            inputFormatters: <TextInputFormatter>[
+              FilteringTextInputFormatter.digitsOnly,
+              LengthLimitingTextInputFormatter(10),
+            ],
+            decoration: InputDecoration(
+              hintText: '98765 43210',
+              hintStyle: _hintStyle,
+              isDense: true,
+              filled: false,
+              fillColor: ColorConstants.transparent,
+              contentPadding: const EdgeInsets.symmetric(vertical: 14),
+              border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              disabledBorder: InputBorder.none,
+              errorBorder: InputBorder.none,
+              focusedErrorBorder: InputBorder.none,
+            ),
+            onChanged: onChanged,
+            onSubmitted: (_) => onSubmitted(),
+            onTapOutside: (_) => focusNode.unfocus(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Web: keep the row intrinsic-height and center it in the 48px pill.
+  /// Stretched TextFields top-align glyphs on web; do not stretch here.
+  Widget _buildWebRow() {
+    const double lineBox = 18;
+
+    final Widget row = SizedBox(
+      height: lineBox,
+      width: double.infinity,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: <Widget>[
+          Text(
+            '+91',
+            style: _textStyle.copyWith(fontWeight: FontWeight.w600),
+            strutStyle: _strut,
+          ),
+          const SizedBox(width: 6),
+          Container(
+            width: 1,
+            height: _fontSize,
+            color: ColorConstants.navy.withValues(alpha: 0.7),
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: TextField(
+              controller: controller,
+              focusNode: focusNode,
+              keyboardType: TextInputType.phone,
+              maxLines: 1,
+              style: _textStyle,
+              strutStyle: _strut,
+              textAlignVertical: TextAlignVertical.center,
+              cursorColor: ColorConstants.brandBlue,
+              cursorWidth: 2,
+              cursorHeight: _fontSize,
+              inputFormatters: <TextInputFormatter>[
+                FilteringTextInputFormatter.digitsOnly,
+                LengthLimitingTextInputFormatter(10),
+              ],
+              decoration: InputDecoration(
+                hintText: '98765 43210',
+                hintStyle: _hintStyle,
+                isDense: true,
+                isCollapsed: true,
+                filled: false,
+                fillColor: ColorConstants.transparent,
+                contentPadding: EdgeInsets.zero,
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                disabledBorder: InputBorder.none,
+                errorBorder: InputBorder.none,
+                focusedErrorBorder: InputBorder.none,
+              ),
+              onChanged: onChanged,
+              onSubmitted: (_) => onSubmitted(),
+              onTapOutside: (_) => focusNode.unfocus(),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    // Place the fixed line-box in the middle of the 48px pill.
+    return Center(child: row);
   }
 }
 
