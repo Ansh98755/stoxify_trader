@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -39,7 +40,7 @@ class AppRouting {
   static final GoRouter router = GoRouter(
     navigatorKey: rootNavigatorKey,
     initialLocation: AppRoutingName.splash,
-    debugLogDiagnostics: true,
+    debugLogDiagnostics: kDebugMode,
     routes: <RouteBase>[
       GoRoute(
         path: AppRoutingName.splash,

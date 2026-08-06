@@ -148,17 +148,18 @@ class _ConnectivityWrapperState extends State<_ConnectivityWrapper>
               child: const NoNetworkScreen(),
             ),
           ),
-        Positioned(
-          right: 16,
-          bottom: 88,
-          child: FloatingActionButton.small(
-            heroTag: 'api-log-button',
-            // This widget sits above the router's navigator, so a FAB
-            // tooltip would not have an Overlay ancestor here.
-            onPressed: _showApiLogs,
-            child: const Icon(Icons.network_check_rounded),
+        if (kDebugMode)
+          Positioned(
+            right: 16,
+            bottom: 88,
+            child: FloatingActionButton.small(
+              heroTag: 'api-log-button',
+              // This widget sits above the router's navigator, so a FAB
+              // tooltip would not have an Overlay ancestor here.
+              onPressed: _showApiLogs,
+              child: const Icon(Icons.network_check_rounded),
+            ),
           ),
-        ),
       ],
     );
   }

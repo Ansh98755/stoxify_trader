@@ -17,7 +17,13 @@ abstract class RequestSigner {
   });
 }
 
-/// DEV-ONLY ECDSA P-256 signer using bundled `assets/dev/ecdsa_private.pem`.
+/// ECDSA P-256 request signer.
+///
+/// Release / Vercel: PEM comes from
+/// `--dart-define=ECDSA_PRIVATE_KEY_PEM=<base64-encoded PEM>`
+/// (same var already set in Vercel project settings).
+///
+/// Debug: falls back to bundled `assets/dev/ecdsa_private.pem`.
 class EcdsaRequestSigner implements RequestSigner {
   EcdsaRequestSigner._(this._privateKey, this.keyVersion);
 
@@ -26,16 +32,31 @@ class EcdsaRequestSigner implements RequestSigner {
   final Random _rng = Random.secure();
 
   static const _devKeyAsset = 'assets/dev/ecdsa_private.pem';
+  static const _injectedKeyBase64 =
+      String.fromEnvironment('ECDSA_PRIVATE_KEY_PEM');
   static const _allowDevSignerInRelease =
       bool.fromEnvironment('ALLOW_DEV_SIGNER');
 
+  /// Loads the signer (name kept for DI).
   static Future<EcdsaRequestSigner> loadDev({String keyVersion = 'v1.0'}) async {
-    if (kReleaseMode && !_allowDevSignerInRelease) {
+    final String pem;
+
+    if (_injectedKeyBase64.isNotEmpty) {
+      // Production: base64-encoded PEM from Vercel env / dart-define.
+      final compact = _injectedKeyBase64.replaceAll(RegExp(r'\s+'), '');
+      pem = utf8.decode(base64.decode(compact));
+    } else if (!kReleaseMode || _allowDevSignerInRelease) {
+      // Local debug (or explicit allow in release).
+      pem = await rootBundle.loadString(_devKeyAsset);
+    } else {
+      // This throw is what caused the blank production screen when the
+      // env key was never wired into the app despite being on Vercel.
       throw StateError(
-        'Refusing to load the bundled dev signing key in a release build.',
+        'No ECDSA signing key available. '
+        'Set ECDSA_PRIVATE_KEY_PEM (base64 of the PEM) for release builds.',
       );
     }
-    final pem = await rootBundle.loadString(_devKeyAsset);
+
     final key = CryptoUtils.ecPrivateKeyFromPem(pem);
     return EcdsaRequestSigner._(key, keyVersion);
   }

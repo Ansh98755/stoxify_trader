@@ -95,7 +95,6 @@ flutter:
     - assets/animations/
     - assets/dev/
     - assets/sounds/
-    - shorebird.yaml
 
   fonts:
     - family: Manrope
