@@ -33,6 +33,44 @@
 
   <title>StoXify Trader</title>
   <link rel="manifest" href="manifest.json">
+
+  <!-- Razorpay Standard Checkout (required for Flutter web payments) -->
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+
+  <!-- Kill browser default borders/outlines; keep editable text vertically centered -->
+  <style>
+    input,
+    textarea,
+    input:focus,
+    textarea:focus,
+    flt-text-editing-host,
+    flt-text-editing-host input,
+    flt-semantics input,
+    flutter-view input {
+      outline: none !important;
+      outline-width: 0 !important;
+      border: 0 !important;
+      border-style: none !important;
+      border-width: 0 !important;
+      border-color: transparent !important;
+      box-shadow: none !important;
+      background: transparent !important;
+      background-color: transparent !important;
+      -webkit-appearance: none !important;
+      appearance: none !important;
+      caret-color: #2F6BFF;
+      margin: 0 !important;
+      padding: 0 !important;
+      line-height: 1 !important;
+      vertical-align: middle !important;
+      box-sizing: border-box !important;
+    }
+    flt-text-editing-host,
+    flt-semantics {
+      display: flex !important;
+      align-items: center !important;
+    }
+  </style>
 </head>
 <body>
   <!--
@@ -43,8 +81,6 @@
     For more details:
     * https://docs.flutter.dev/platform-integration/web/initialization
   -->
-  <!-- Razorpay Standard Checkout (required for Flutter web payments) -->
-  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

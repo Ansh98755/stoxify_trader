@@ -60,108 +60,99 @@ class WebSideNav extends StatelessWidget {
           duration: const Duration(milliseconds: 220),
           curve: Curves.easeOutCubic,
           width: expanded ? _expandedWidth : _collapsedWidth,
+          clipBehavior: Clip.hardEdge,
           decoration: const BoxDecoration(
             color: ColorConstants.white,
             border: Border(
               right: BorderSide(color: ColorConstants.line),
             ),
           ),
-          child: SafeArea(
-            right: false,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                Padding(
-                  padding: EdgeInsets.fromLTRB(
-                    expanded ? 16 : 12,
-                    16,
-                    expanded ? 8 : 12,
-                    12,
-                  ),
-                  child: Row(
-                    children: <Widget>[
-                      if (expanded)
-                        Expanded(
-                          child: Align(
-                            alignment: Alignment.centerLeft,
-                            child: FittedBox(
-                              fit: BoxFit.scaleDown,
-                              alignment: Alignment.centerLeft,
-                              child: RichText(
-                                text: TextSpan(
-                                  style: TextStyleConstants.cardTitleLarge
-                                      .copyWith(
-                                    color: ColorConstants.navy,
-                                    fontSize: 22,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                  children: const <InlineSpan>[
-                                    TextSpan(text: 'Sto'),
-                                    TextSpan(
-                                      text: 'X',
-                                      style: TextStyle(
-                                        color: ColorConstants.brandBlueLight,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              // Gate labels on actual width so text isn't crushed mid-animation.
+              final showLabels = constraints.maxWidth >= 160;
+              return SafeArea(
+                right: false,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    Padding(
+                      padding: EdgeInsets.fromLTRB(
+                        showLabels ? 16 : 8,
+                        16,
+                        showLabels ? 8 : 8,
+                        12,
+                      ),
+                      child: showLabels
+                          ? Row(
+                              children: <Widget>[
+                                Expanded(
+                                  child: Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: RichText(
+                                      maxLines: 1,
+                                      overflow: TextOverflow.clip,
+                                      text: TextSpan(
+                                        style: TextStyleConstants
+                                            .cardTitleLarge
+                                            .copyWith(
+                                          color: ColorConstants.navy,
+                                          fontSize: 22,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                        children: const <InlineSpan>[
+                                          TextSpan(text: 'Sto'),
+                                          TextSpan(
+                                            text: 'X',
+                                            style: TextStyle(
+                                              color: ColorConstants
+                                                  .brandBlueLight,
+                                            ),
+                                          ),
+                                          TextSpan(text: 'ify'),
+                                        ],
                                       ),
                                     ),
-                                    TextSpan(text: 'ify'),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                        )
-                      else
-                        Expanded(
-                          child: Center(
-                            child: RichText(
-                              text: TextSpan(
-                                style:
-                                    TextStyleConstants.cardTitleLarge.copyWith(
-                                  color: ColorConstants.navy,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                                children: const <InlineSpan>[
-                                  TextSpan(text: 'S'),
-                                  TextSpan(
-                                    text: 'X',
-                                    style: TextStyle(
-                                      color: ColorConstants.brandBlueLight,
-                                    ),
                                   ),
-                                ],
+                                ),
+                                IconButton(
+                                  tooltip: 'Collapse menu',
+                                  onPressed: WebSideNavController.toggle,
+                                  icon: const Icon(
+                                    Icons.menu_open_rounded,
+                                    color: ColorConstants.ink,
+                                  ),
+                                ),
+                              ],
+                            )
+                          : Center(
+                              child: IconButton(
+                                tooltip: 'Expand menu',
+                                onPressed: WebSideNavController.toggle,
+                                icon: const Icon(
+                                  Icons.menu_rounded,
+                                  color: ColorConstants.ink,
+                                ),
                               ),
                             ),
-                          ),
-                        ),
-                      IconButton(
-                        tooltip: expanded ? 'Collapse menu' : 'Expand menu',
-                        onPressed: WebSideNavController.toggle,
-                        icon: Icon(
-                          expanded
-                              ? Icons.menu_open_rounded
-                              : Icons.menu_rounded,
-                          color: ColorConstants.ink,
-                        ),
+                    ),
+                    const Divider(height: 1, color: ColorConstants.line),
+                    const SizedBox(height: 8),
+                    for (var i = 0; i < _items.length; i++)
+                      _SideNavTile(
+                        item: _items[i],
+                        selected: currentIndex == i,
+                        expanded: showLabels,
+                        onTap: () {
+                          if (i == currentIndex) return;
+                          navigateMainTab(context, i);
+                        },
                       ),
-                    ],
-                  ),
+                    const Spacer(),
+                  ],
                 ),
-                const Divider(height: 1, color: ColorConstants.line),
-                const SizedBox(height: 8),
-                for (var i = 0; i < _items.length; i++)
-                  _SideNavTile(
-                    item: _items[i],
-                    selected: currentIndex == i,
-                    expanded: expanded,
-                    onTap: () {
-                      if (i == currentIndex) return;
-                      navigateMainTab(context, i);
-                    },
-                  ),
-                const Spacer(),
-              ],
-            ),
+              );
+            },
           ),
         );
       },
@@ -217,9 +208,11 @@ class _SideNavTile extends StatelessWidget {
                   ),
                   if (expanded) ...<Widget>[
                     const SizedBox(width: 12),
-                    Expanded(
+                    Flexible(
                       child: Text(
                         item.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyleConstants.bodyMedium.copyWith(
                           color: color,
                           fontWeight:

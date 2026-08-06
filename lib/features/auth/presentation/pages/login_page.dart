@@ -319,17 +319,19 @@ class _PhoneInputShell extends StatelessWidget {
           ),
         ],
       ),
-      // Center (not alignment on a tall expanding child) so +91 / hint share
-      // the same vertical middle of the 48px pill.
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        // Explicit middle of the 48px pill — default top-align leaves
+        // +91 / hint optically high on mobile web.
+        child: Align(
+          alignment: Alignment.centerLeft,
           child: child,
         ),
       ),
     );
   }
 }
+
 class _PhoneInputRow extends StatelessWidget {
   const _PhoneInputRow({
     required this.controller,
@@ -344,6 +346,8 @@ class _PhoneInputRow extends StatelessWidget {
   final VoidCallback onSubmitted;
 
   static const double _fontSize = 14;
+  /// Mobile-web fonts sit slightly high in the line box; nudge the whole row.
+  static const double _webOpticalNudgeDy = 1.5;
 
   @override
   Widget build(BuildContext context) {
@@ -364,48 +368,18 @@ class _PhoneInputRow extends StatelessWidget {
       leadingDistribution: TextLeadingDistribution.even,
     );
 
-    final Widget field = TextField(
-      controller: controller,
-      focusNode: focusNode,
-      keyboardType: TextInputType.phone,
-      maxLines: 1,
-      style: textStyle,
-      strutStyle: strut,
-      textAlignVertical: TextAlignVertical.center,
-      cursorColor: ColorConstants.brandBlue,
-      cursorWidth: 2,
-      cursorHeight: _fontSize,
-      inputFormatters: <TextInputFormatter>[
-        FilteringTextInputFormatter.digitsOnly,
-        LengthLimitingTextInputFormatter(10),
-      ],
-      decoration: InputDecoration(
-        hintText: '98765 43210',
-        hintStyle: hintStyle,
-        isDense: true,
-        isCollapsed: true,
-        filled: false,
-        fillColor: ColorConstants.transparent,
-        contentPadding: EdgeInsets.zero,
-        border: InputBorder.none,
-        enabledBorder: InputBorder.none,
-        focusedBorder: InputBorder.none,
-        disabledBorder: InputBorder.none,
-        errorBorder: InputBorder.none,
-        focusedErrorBorder: InputBorder.none,
-      ),
-      onChanged: onChanged,
-      onSubmitted: (_) => onSubmitted(),
-      onTapOutside: (_) => focusNode.unfocus(),
-    );
-
-    return Row(
+    final Widget row = Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: <Widget>[
         Text(
           '+91',
           style: textStyle.copyWith(fontWeight: FontWeight.w600),
           strutStyle: strut,
+          textHeightBehavior: const TextHeightBehavior(
+            applyHeightToFirstAscent: false,
+            applyHeightToLastDescent: false,
+            leadingDistribution: TextLeadingDistribution.even,
+          ),
         ),
         const SizedBox(width: 6),
         Container(
@@ -415,18 +389,48 @@ class _PhoneInputRow extends StatelessWidget {
         ),
         const SizedBox(width: 6),
         Expanded(
-          child: SizedBox(
-            height: 20,
-            // Web TextField sits a bit high vs +91; nudge slightly down.
-            child: kIsWeb
-                ? Transform.translate(
-                    offset: const Offset(0, -1),
-                    child: field,
-                  )
-                : field,
+          child: TextField(
+            controller: controller,
+            focusNode: focusNode,
+            keyboardType: TextInputType.phone,
+            maxLines: 1,
+            style: textStyle,
+            strutStyle: strut,
+            textAlignVertical: TextAlignVertical.center,
+            cursorColor: ColorConstants.brandBlue,
+            cursorWidth: 2,
+            cursorHeight: _fontSize,
+            inputFormatters: <TextInputFormatter>[
+              FilteringTextInputFormatter.digitsOnly,
+              LengthLimitingTextInputFormatter(10),
+            ],
+            decoration: InputDecoration(
+              hintText: '98765 43210',
+              hintStyle: hintStyle,
+              isDense: true,
+              isCollapsed: true,
+              filled: false,
+              fillColor: ColorConstants.transparent,
+              contentPadding: EdgeInsets.zero,
+              border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              disabledBorder: InputBorder.none,
+              errorBorder: InputBorder.none,
+              focusedErrorBorder: InputBorder.none,
+            ),
+            onChanged: onChanged,
+            onSubmitted: (_) => onSubmitted(),
+            onTapOutside: (_) => focusNode.unfocus(),
           ),
         ),
       ],
+    );
+
+    if (!kIsWeb) return row;
+    return Transform.translate(
+      offset: const Offset(0, _webOpticalNudgeDy),
+      child: row,
     );
   }
 }
