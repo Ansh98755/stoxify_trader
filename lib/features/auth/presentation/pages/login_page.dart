@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -159,25 +158,23 @@ class _LoginViewState extends State<_LoginView> {
                           buildWhen: (previous, current) =>
                               previous.phoneNumber != current.phoneNumber,
                           builder: (BuildContext context, LoginState state) {
-                            return _PhoneInputShell(
+                            return _PhoneInputField(
                               focused: _phoneFocusNode.hasFocus,
-                              child: _PhoneInputRow(
-                                controller: _phoneController,
-                                focusNode: _phoneFocusNode,
-                                onChanged: (String value) {
+                              controller: _phoneController,
+                              focusNode: _phoneFocusNode,
+                              onChanged: (String value) {
+                                context.read<LoginBloc>().add(
+                                      LoginPhoneChanged(value),
+                                    );
+                              },
+                              onSubmitted: () {
+                                if (state.isPhoneValid &&
+                                    !state.isSubmitting) {
                                   context.read<LoginBloc>().add(
-                                        LoginPhoneChanged(value),
+                                        const LoginSubmitted(),
                                       );
-                                },
-                                onSubmitted: () {
-                                  if (state.isPhoneValid &&
-                                      !state.isSubmitting) {
-                                    context.read<LoginBloc>().add(
-                                          const LoginSubmitted(),
-                                        );
-                                  }
-                                },
-                              ),
+                                }
+                              },
                             );
                           },
                         ),
@@ -289,21 +286,42 @@ class _LoginHero extends StatelessWidget {
   }
 }
 
-/// Phone field chrome: fixed height, content truly centered (not top-stuck).
-class _PhoneInputShell extends StatelessWidget {
-  const _PhoneInputShell({
+/// Phone input: one full-height row so +91 / hint / digits share the same
+/// vertical center on mobile and web (no platform Transform nudges).
+class _PhoneInputField extends StatelessWidget {
+  const _PhoneInputField({
     required this.focused,
-    required this.child,
+    required this.controller,
+    required this.focusNode,
+    required this.onChanged,
+    required this.onSubmitted,
   });
 
   final bool focused;
-  final Widget child;
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final ValueChanged<String> onChanged;
+  final VoidCallback onSubmitted;
+
+  static const double _height = 48;
+  static const double _fontSize = 14;
 
   @override
   Widget build(BuildContext context) {
+    final TextStyle textStyle = TextStyleConstants.bodyMedium.copyWith(
+      color: ColorConstants.ink,
+      fontWeight: FontWeight.w500,
+      fontSize: _fontSize,
+      height: 1.2,
+      leadingDistribution: TextLeadingDistribution.even,
+    );
+    final TextStyle hintStyle = textStyle.copyWith(
+      color: ColorConstants.ink.withValues(alpha: 0.32),
+    );
+
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
-      height: 48,
+      height: _height,
       decoration: BoxDecoration(
         color: ColorConstants.white,
         borderRadius: BorderRadius.circular(16),
@@ -321,116 +339,63 @@ class _PhoneInputShell extends StatelessWidget {
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16),
-        // Explicit middle of the 48px pill — default top-align leaves
-        // +91 / hint optically high on mobile web.
-        child: Align(
-          alignment: Alignment.centerLeft,
-          child: child,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            Center(
+              child: Text(
+                '+91',
+                style: textStyle.copyWith(fontWeight: FontWeight.w600),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Center(
+              child: Container(
+                width: 1,
+                height: _fontSize,
+                color: ColorConstants.navy.withValues(alpha: 0.7),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: TextField(
+                controller: controller,
+                focusNode: focusNode,
+                keyboardType: TextInputType.phone,
+                maxLines: 1,
+                style: textStyle,
+                textAlignVertical: TextAlignVertical.center,
+                cursorColor: ColorConstants.brandBlue,
+                cursorWidth: 2,
+                cursorHeight: _fontSize,
+                inputFormatters: <TextInputFormatter>[
+                  FilteringTextInputFormatter.digitsOnly,
+                  LengthLimitingTextInputFormatter(10),
+                ],
+                decoration: InputDecoration(
+                  hintText: '98765 43210',
+                  hintStyle: hintStyle,
+                  isDense: true,
+                  filled: false,
+                  fillColor: ColorConstants.transparent,
+                  // Symmetric vertical padding inside the 48px shell so the
+                  // editable line sits in the geometric middle on all platforms.
+                  contentPadding: const EdgeInsets.symmetric(vertical: 14),
+                  border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  disabledBorder: InputBorder.none,
+                  errorBorder: InputBorder.none,
+                  focusedErrorBorder: InputBorder.none,
+                ),
+                onChanged: onChanged,
+                onSubmitted: (_) => onSubmitted(),
+                onTapOutside: (_) => focusNode.unfocus(),
+              ),
+            ),
+          ],
         ),
       ),
-    );
-  }
-}
-
-class _PhoneInputRow extends StatelessWidget {
-  const _PhoneInputRow({
-    required this.controller,
-    required this.focusNode,
-    required this.onChanged,
-    required this.onSubmitted,
-  });
-
-  final TextEditingController controller;
-  final FocusNode focusNode;
-  final ValueChanged<String> onChanged;
-  final VoidCallback onSubmitted;
-
-  static const double _fontSize = 14;
-  /// Mobile-web fonts sit slightly high in the line box; nudge the whole row.
-  static const double _webOpticalNudgeDy = 1.5;
-
-  @override
-  Widget build(BuildContext context) {
-    final TextStyle textStyle = TextStyleConstants.bodyMedium.copyWith(
-      color: ColorConstants.ink,
-      fontWeight: FontWeight.w500,
-      fontSize: _fontSize,
-      height: 1.0,
-      leadingDistribution: TextLeadingDistribution.even,
-    );
-    final TextStyle hintStyle = textStyle.copyWith(
-      color: ColorConstants.ink.withValues(alpha: 0.32),
-    );
-    const StrutStyle strut = StrutStyle(
-      fontSize: _fontSize,
-      height: 1.0,
-      forceStrutHeight: true,
-      leadingDistribution: TextLeadingDistribution.even,
-    );
-
-    final Widget row = Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: <Widget>[
-        Text(
-          '+91',
-          style: textStyle.copyWith(fontWeight: FontWeight.w600),
-          strutStyle: strut,
-          textHeightBehavior: const TextHeightBehavior(
-            applyHeightToFirstAscent: false,
-            applyHeightToLastDescent: false,
-            leadingDistribution: TextLeadingDistribution.even,
-          ),
-        ),
-        const SizedBox(width: 6),
-        Container(
-          width: 1,
-          height: _fontSize,
-          color: ColorConstants.navy.withValues(alpha: 0.7),
-        ),
-        const SizedBox(width: 6),
-        Expanded(
-          child: TextField(
-            controller: controller,
-            focusNode: focusNode,
-            keyboardType: TextInputType.phone,
-            maxLines: 1,
-            style: textStyle,
-            strutStyle: strut,
-            textAlignVertical: TextAlignVertical.center,
-            cursorColor: ColorConstants.brandBlue,
-            cursorWidth: 2,
-            cursorHeight: _fontSize,
-            inputFormatters: <TextInputFormatter>[
-              FilteringTextInputFormatter.digitsOnly,
-              LengthLimitingTextInputFormatter(10),
-            ],
-            decoration: InputDecoration(
-              hintText: '98765 43210',
-              hintStyle: hintStyle,
-              isDense: true,
-              isCollapsed: true,
-              filled: false,
-              fillColor: ColorConstants.transparent,
-              contentPadding: EdgeInsets.zero,
-              border: InputBorder.none,
-              enabledBorder: InputBorder.none,
-              focusedBorder: InputBorder.none,
-              disabledBorder: InputBorder.none,
-              errorBorder: InputBorder.none,
-              focusedErrorBorder: InputBorder.none,
-            ),
-            onChanged: onChanged,
-            onSubmitted: (_) => onSubmitted(),
-            onTapOutside: (_) => focusNode.unfocus(),
-          ),
-        ),
-      ],
-    );
-
-    if (!kIsWeb) return row;
-    return Transform.translate(
-      offset: const Offset(0, _webOpticalNudgeDy),
-      child: row,
     );
   }
 }
