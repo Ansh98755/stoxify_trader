@@ -10,8 +10,8 @@ import 'request_signer.dart';
 
 const _envBaseUrl = String.fromEnvironment('API_BASE_URL');
 
-const _cloudBaseUrl =
-    'https://stoxify-gateway.thankfulriver-811030ea.centralindia.azurecontainerapps.io';
+const _cloudBaseUrl ='https://api.stoxify.in';
+    // 'https://stoxify-gateway-prod.whiteglacier-774152f0.centralindia.azurecontainerapps.io';
 
 String get apiBaseUrl {
   if (kReleaseMode) {
@@ -124,15 +124,20 @@ class _SignedAuthInterceptor extends Interceptor {
     );
     final isAuthEndpoint = options.path.startsWith('/auth/');
     final alreadyRetried = options.extra[_retriedFlag] == true;
-    if (response.statusCode != 401 || isAuthEndpoint || alreadyRetried) {
+    final sessionExpired = _isSessionExpiredResponse(response);
+
+    if (!sessionExpired || isAuthEndpoint) {
+      return handler.next(response);
+    }
+
+    if (alreadyRetried) {
+      await _forceExpireSession();
       return handler.next(response);
     }
 
     final refreshed = await _refreshOnce();
     if (!refreshed) {
-      await storage.delete(SecureStorage.accessToken);
-      await storage.delete(SecureStorage.refreshToken);
-      onSessionExpired?.call();
+      await _forceExpireSession();
       return handler.next(response);
     }
 
@@ -141,8 +146,41 @@ class _SignedAuthInterceptor extends Interceptor {
       final retried = await dio.fetch<dynamic>(options);
       return handler.resolve(retried);
     } catch (_) {
+      await _forceExpireSession();
       return handler.next(response);
     }
+  }
+
+  Future<void> _forceExpireSession() async {
+    await storage.clearSession();
+    onSessionExpired?.call();
+  }
+
+  /// 401 always; also 403/other bodies that clearly mean token/session expiry.
+  bool _isSessionExpiredResponse(Response<dynamic> response) {
+    final code = response.statusCode;
+    if (code == 401) return true;
+    if (code != 403) return false;
+
+    final data = response.data;
+    String text = '';
+    if (data is Map) {
+      text = [
+        data['code'],
+        data['error'],
+        data['message'],
+        data['detail'],
+      ].whereType<Object>().map((e) => e.toString()).join(' ');
+    } else if (data != null) {
+      text = data.toString();
+    }
+    final lower = text.toLowerCase();
+    return (lower.contains('token') && lower.contains('expir')) ||
+        (lower.contains('session') && lower.contains('expir')) ||
+        lower.contains('unauthorized') ||
+        lower.contains('not authenticated') ||
+        lower.contains('invalid token') ||
+        lower.contains('jwt expired');
   }
 
   @override

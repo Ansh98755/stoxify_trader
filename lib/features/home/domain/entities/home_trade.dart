@@ -37,6 +37,7 @@ class HomeTrade {
     this.t2,
     this.t3,
     this.ltp,
+    this.exitPrice,
     this.pnlPercent,
     this.runningPnlPercent,
     this.batchName,
@@ -48,6 +49,7 @@ class HomeTrade {
     this.rationale,
     required this.nseTimestamp,
     this.entryTimestamp,
+    this.exitTimestamp,
     this.targets = const <TradeTarget>[],
     this.hitTargets = const <String>[],
     this.modifications = const <TradeModification>[],
@@ -66,6 +68,7 @@ class HomeTrade {
   final double? t2;
   final double? t3;
   final double? ltp;
+  final double? exitPrice;
   final double? pnlPercent;
   final double? runningPnlPercent;
   final String? batchName;
@@ -76,6 +79,7 @@ class HomeTrade {
   final List<TradeTarget> targets;
   final List<String> hitTargets;
   final DateTime? entryTimestamp;
+  final DateTime? exitTimestamp;
   final List<TradeModification> modifications;
   final String? planId;
   final String? logoUrl;
@@ -153,6 +157,7 @@ class HomeTrade {
     double? t2,
     double? t3,
     double? ltp,
+    double? exitPrice,
     double? pnlPercent,
     double? runningPnlPercent,
     String? batchName,
@@ -164,6 +169,7 @@ class HomeTrade {
     String? rationale,
     DateTime? nseTimestamp,
     DateTime? entryTimestamp,
+    DateTime? exitTimestamp,
     List<TradeTarget>? targets,
     List<String>? hitTargets,
     List<TradeModification>? modifications,
@@ -183,6 +189,7 @@ class HomeTrade {
       t2: t2 ?? this.t2,
       t3: t3 ?? this.t3,
       ltp: ltp ?? this.ltp,
+      exitPrice: exitPrice ?? this.exitPrice,
       pnlPercent: pnlPercent ?? this.pnlPercent,
       runningPnlPercent: runningPnlPercent ?? this.runningPnlPercent,
       batchName: batchName ?? this.batchName,
@@ -194,6 +201,7 @@ class HomeTrade {
       rationale: rationale ?? this.rationale,
       nseTimestamp: nseTimestamp ?? this.nseTimestamp,
       entryTimestamp: entryTimestamp ?? this.entryTimestamp,
+      exitTimestamp: exitTimestamp ?? this.exitTimestamp,
       targets: targets ?? this.targets,
       hitTargets: hitTargets ?? this.hitTargets,
       modifications: modifications ?? this.modifications,

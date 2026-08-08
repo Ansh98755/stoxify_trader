@@ -88,10 +88,14 @@ class AuthRepositoryImpl implements AuthRepository {
     }
 
     final user = AuthUser.fromVerifyResponse(data);
+    // Seed cache so Home / Interest can skip an immediate GET /users/me.
+    _cachedUser = user;
     if (user.isNewUser) {
       await _storage.write(SecureStorage.isNewUser, 'true');
+    } else {
+      await _storage.delete(SecureStorage.isNewUser);
     }
-    // Don't block login navigation on push-token registration.
+    // Never block navigation on push-token registration.
     unawaited(
       FcmService.instance.registerTokenForSession().catchError((_) => null),
     );

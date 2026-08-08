@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:equatable/equatable.dart';
 
+import '../../../../core/network/ws_trade_event.dart';
+
 sealed class HomeEvent extends Equatable {
   const HomeEvent();
 
@@ -49,12 +51,16 @@ final class HomeFiltersChanged extends HomeEvent {
 }
 
 final class HomeLivePricesUpdated extends HomeEvent {
-  const HomeLivePricesUpdated(this.prices);
+  HomeLivePricesUpdated(this.prices)
+      : receivedAt = DateTime.now().microsecondsSinceEpoch;
 
   final Map<String, double> prices;
 
+  /// Makes every WS/poll tick unique so Bloc never drops a same-price update.
+  final int receivedAt;
+
   @override
-  List<Object?> get props => <Object?>[prices];
+  List<Object?> get props => <Object?>[prices, receivedAt];
 }
 
 final class HomeNotificationReceived extends HomeEvent {
@@ -100,4 +106,22 @@ final class HomeLoggedOut extends HomeEvent {
   const HomeLoggedOut([this.completer]);
 
   final Completer<void>? completer;
+}
+
+final class HomeWsTradeEventReceived extends HomeEvent {
+  const HomeWsTradeEventReceived(this.event);
+
+  final WsTradeEvent event;
+
+  @override
+  List<Object?> get props => <Object?>[event.kind, event.tradeId, event.payload];
+}
+
+final class HomeWsReconnected extends HomeEvent {
+  const HomeWsReconnected();
+}
+
+/// Clears [HomeState.tradeWsToastMessage] after the page shows the flushbar.
+final class HomeClearTradeWsFeedback extends HomeEvent {
+  const HomeClearTradeWsFeedback();
 }

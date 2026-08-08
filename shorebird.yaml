@@ -1,0 +1,13 @@
+# Shorebird Code Push (OTA) configuration.
+# Learn more: https://docs.shorebird.dev
+#
+# This file is committed to git (app_id is not a secret).
+# After creating a Shorebird account, run from project root:
+#   shorebird login
+#   shorebird init
+# That will set / refresh the real `app_id` from the Shorebird console.
+#
+# Until then, OTA checks no-op safely when the updater is unavailable.
+
+# REPLACE by running `shorebird init` (do not invent an app_id).
+app_id: REPLACE_WITH_SHOREBIRD_APP_ID

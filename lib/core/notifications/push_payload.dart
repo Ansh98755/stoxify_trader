@@ -98,31 +98,65 @@ class PushPayload {
   }
 
   factory PushPayload.fromMap(Map<String, dynamic> data) {
+    final flat = <String, dynamic>{...data};
+    final nested = data['payload'];
+    if (nested is Map) {
+      for (final entry in nested.entries) {
+        flat.putIfAbsent(entry.key.toString(), () => entry.value);
+      }
+    }
+    final dataMap = data['data'];
+    if (dataMap is Map) {
+      for (final entry in dataMap.entries) {
+        flat.putIfAbsent(entry.key.toString(), () => entry.value);
+      }
+    }
+
     String? s(String key) {
-      final v = data[key];
+      final v = flat[key];
       if (v == null) return null;
       final t = v.toString().trim();
       return t.isEmpty ? null : t;
     }
 
+    final type =
+        (s('type') ?? s('notification_type') ?? 'OTHER').toUpperCase();
+    final relatedType = s('related_entity_type')?.toUpperCase();
+    final relatedId = s('related_entity_id');
+
+    String? byRelated(String want) {
+      if (relatedType == want && relatedId != null) return relatedId;
+      return null;
+    }
+
     return PushPayload(
-      type: (s('type') ?? s('notification_type') ?? 'OTHER').toUpperCase(),
-      notificationId: s('notification_id'),
+      type: type,
+      notificationId: s('notification_id') ?? s('id'),
       title: s('title'),
       body: s('body') ?? s('message'),
-      relatedEntityType: s('related_entity_type'),
-      relatedEntityId: s('related_entity_id'),
-      route: s('route'),
-      tradeId: s('trade_id') ?? s('tradeId'),
-      planId: s('plan_id') ?? s('planId'),
-      batchId: s('batch_id') ?? s('batchId'),
-      analystId: s('analyst_id') ?? s('analystId'),
-      subscriptionId: s('subscription_id') ?? s('subscriptionId'),
+      relatedEntityType: relatedType,
+      relatedEntityId: relatedId,
+      route: s('route') ?? s('deep_link') ?? s('deeplink'),
+      tradeId: s('trade_id') ??
+          s('tradeId') ??
+          byRelated('TRADE'),
+      planId: s('plan_id') ??
+          s('planId') ??
+          byRelated('PLAN') ??
+          byRelated('BATCH'),
+      batchId: s('batch_id') ?? s('batchId') ?? byRelated('BATCH'),
+      analystId: s('analyst_id') ??
+          s('analystId') ??
+          byRelated('ANALYST') ??
+          byRelated('ADVISOR'),
+      subscriptionId: s('subscription_id') ??
+          s('subscriptionId') ??
+          byRelated('SUBSCRIPTION'),
       symbol: s('symbol'),
       ltp: s('ltp'),
       changePct: s('change_pct') ?? s('changePct'),
       collapseKey: s('collapse_key') ?? s('collapseKey') ?? s('tag'),
-      raw: Map<String, dynamic>.from(data),
+      raw: Map<String, dynamic>.from(flat),
     );
   }
 

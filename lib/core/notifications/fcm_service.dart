@@ -27,6 +27,18 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   debugPrint(
     '[FCM] background message: ${message.messageId} type=${message.data['type']}',
   );
+
+  // Data-only pushes never get a system tray banner — show one with sound.
+  if (message.notification == null && message.data.isNotEmpty) {
+    try {
+      await LocalNotificationsService.ensureReady();
+      await LocalNotificationsService.showFromPush(
+        FcmService._toPayload(message),
+      );
+    } catch (e) {
+      debugPrint('[FCM] background local notify failed: $e');
+    }
+  }
 }
 
 /// Owns FCM permission, token lifecycle, and message → UI / deep-link wiring.
@@ -214,7 +226,14 @@ class FcmService {
       debugPrint('[FCM] web foreground: ${payload.title ?? payload.type}');
       return;
     }
-    unawaited(LocalNotificationsService.showFromPush(payload));
+    // Android: play chime via MediaPlayer; iOS uses tray sound.
+    unawaited(
+      LocalNotificationsService.showFromPush(
+        payload,
+        playTraySound: !AppPlatform.isAndroid,
+        playFallbackChime: AppPlatform.isAndroid,
+      ),
+    );
   }
 
   void _onOpened(RemoteMessage message) {

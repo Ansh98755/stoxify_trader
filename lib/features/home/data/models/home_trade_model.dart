@@ -48,19 +48,28 @@ class HomeTradeModel {
     return HomeTrade(
       id: (json['trade_id'] ?? json['id'] ?? json['_id'])?.toString() ?? '',
       symbol: symbol,
-      companyName: (leg['name'] as String?)?.trim().isNotEmpty == true
-          ? (leg['name'] as String).trim()
-          : null,
+      companyName: _firstNonEmpty(<String?>[
+        leg['full_name'] as String?,
+        json['full_name'] as String?,
+        leg['name'] as String?,
+        json['name'] as String?,
+      ]),
       direction: _direction(leg['direction'] as String?),
       segment: _segment(json['segment'] as String?),
       category: _category(json['category'] as String?),
-      state: _state((json['status'] ?? json['state'] ?? json['trade_status'])?.toString()),
+      state: stateFromApi(
+        (json['status'] ?? json['state'] ?? json['trade_status'])?.toString(),
+      ),
       entry: entry,
       sl: sl,
       t1: t1,
       t2: targetPrices.length > 1 ? targetPrices[1] : null,
       t3: targetPrices.length > 2 ? targetPrices[2] : null,
       ltp: (leg['ltp'] as num?)?.toDouble(),
+      exitPrice: (leg['exit_price'] as num?)?.toDouble() ??
+          (json['exit_price'] as num?)?.toDouble() ??
+          (leg['close_price'] as num?)?.toDouble() ??
+          (json['close_price'] as num?)?.toDouble(),
       pnlPercent: pnl,
       runningPnlPercent: (leg['running_pnl_percent'] as num?)?.toDouble(),
       batchName: _batchName(json['batch']),
@@ -82,13 +91,26 @@ class HomeTradeModel {
       hitTargets: ((json['hit_targets'] as List?) ?? [])
           .whereType<String>().toList(),
       entryTimestamp: _date(json['entry_timestamp']),
+      exitTimestamp: _date(json['exit_timestamp']) ??
+          _date(json['closed_at']) ??
+          _date(json['exit_at']) ??
+          _date(leg['exit_timestamp']) ??
+          _date(leg['exit_at']),
       modifications: _modifications(
-        json['modification_history'],
+        json['modification_history'] ?? json['modifications'],
         analystId: (json['analyst_id'] ?? json['analystId'])?.toString(),
         analystName: json['analyst_name'] as String?,
       ),
       planId: json['plan_id'] as String?,
     );
+  }
+
+  static String? _firstNonEmpty(List<String?> values) {
+    for (final value in values) {
+      final text = value?.trim() ?? '';
+      if (text.isNotEmpty) return text;
+    }
+    return null;
   }
 
   static String? _batchName(dynamic raw) {
@@ -143,7 +165,7 @@ class HomeTradeModel {
     }
   }
 
-  static HomeTradeState _state(String? raw) {
+  static HomeTradeState stateFromApi(String? raw) {
     switch (raw?.toUpperCase()) {
       case 'LIVE':
       case 'ACTIVE':

@@ -481,7 +481,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
                                     mainAxisSpacing: 20,
                                     crossAxisSpacing: 16,
                                     mainAxisExtent:
-                                        columns >= 3 ? 172 : 180,
+                                        columns >= 3 ? 230 : 250,
                                   )),
                                   itemCount: analysts.length,
                                   itemBuilder: (context, index) {

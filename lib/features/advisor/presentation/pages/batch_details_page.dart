@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
 import 'package:go_router/go_router.dart';
@@ -8,16 +9,18 @@ import '../../../../core/constants/color_constants.dart';
 import '../../../../core/constants/text_style_constants.dart';
 import '../../../../core/shimmer/shimmer_widgets.dart';
 import '../../../../core/utils/app_size.dart';
+import '../../../../core/utils/responsive_layout.dart';
 import '../../../../core/widgets/app_chrome.dart';
+import '../../../../core/widgets/app_loader.dart';
 import '../../../../core/widgets/app_screen_background.dart';
 import '../../../../core/widgets/common_app_notification_bar.dart';
 import '../../../../core/widgets/common_button_widget.dart';
 import '../../../../core/widgets/common_trading_card.dart';
 import '../../../../core/widgets/risk_badge.dart';
 import '../../../../core/widgets/sebi_verified_pill.dart';
-import '../../../../core/widgets/segment_tag_chip.dart';
 import '../../../discover/data/models/discover_batch_model.dart';
 import '../../../discover/domain/repositories/discover_repository.dart';
+import '../../../home/data/models/home_trade_model.dart';
 import '../../../home/domain/entities/home_subscription.dart';
 import '../../../home/domain/entities/home_trade.dart';
 import '../../../home/domain/repositories/home_repository.dart';
@@ -25,6 +28,7 @@ import '../../../home/presentation/bloc/home_bloc.dart';
 import '../../../home/presentation/bloc/home_event.dart';
 import '../../../home/presentation/mappers/home_ui_mapper.dart';
 import '../../../subscriptions/presentation/pages/subscriptions_page.dart';
+import '../../../trades/presentation/widgets/trades_status_tabs.dart';
 
 class BatchDetailsPage extends StatefulWidget {
   const BatchDetailsPage({super.key, this.planId});
@@ -39,6 +43,7 @@ class _BatchDetailsPageState extends State<BatchDetailsPage> {
   final DiscoverRepository _discover =
       GetIt.instance<DiscoverRepository>();
   final HomeRepository _home = GetIt.instance<HomeRepository>();
+  final Dio _dio = GetIt.instance<Dio>();
   final HomeBloc _homeBloc = GetIt.instance<HomeBloc>();
 
   DiscoverBatchModel? _plan;
@@ -51,6 +56,7 @@ class _BatchDetailsPageState extends State<BatchDetailsPage> {
   // for genuine network fetches; cached responses clear it before it fires.
   bool _loading = true;
   String? _error;
+  TradesStatusTab _tradeTab = TradesStatusTab.active;
 
   @override
   void initState() {
@@ -91,23 +97,18 @@ class _BatchDetailsPageState extends State<BatchDetailsPage> {
     try {
       final plan = await _discover.fetchPlan(planId);
       final results = await Future.wait<Object>(<Future<Object>>[
-        _home.fetchFeed(
-          page: 1,
-          analystId: plan.analystId,
-          status: 'LIVE,CLOSED',
-        ),
+        _fetchBatchTrades(plan.planId),
         _home.fetchSubscriptions(),
         _home.fetchSavedTradeIds(),
       ]);
       if (!mounted) return;
-      final feed = results[0] as HomeFeedPage;
+      final trades = results[0] as List<HomeTrade>;
       final subscriptions = results[1] as List<HomeSubscription>;
       final savedIds = results[2] as Set<String>;
       final matching = subscriptions.where((s) => s.planId == plan.planId);
       setState(() {
         _plan = plan;
-        _trades =
-            feed.trades.where((t) => t.planId == plan.planId).toList();
+        _trades = trades;
         _savedTradeIds = savedIds;
         _subscription = matching.isEmpty ? null : matching.first;
         _loading = false;
@@ -126,8 +127,63 @@ class _BatchDetailsPageState extends State<BatchDetailsPage> {
     }
   }
 
+  /// Batch-details only: GET /trades/?page=&limit=&batch_id= (no analyst/status).
+  /// Loads every page so all batch trades are shown, not just the first 20.
+  Future<List<HomeTrade>> _fetchBatchTrades(String batchId) async {
+    const limit = HomeRepository.pageSize;
+    final all = <HomeTrade>[];
+    var page = 1;
+
+    while (true) {
+      final res = await _dio.get<dynamic>(
+        '/trades/',
+        queryParameters: <String, dynamic>{
+          'page': page,
+          'limit': limit,
+          'batch_id': batchId,
+        },
+      );
+      if (res.statusCode != 200) break;
+
+      final Map<String, dynamic>? dataMap =
+          res.data is Map ? (res.data as Map).cast<String, dynamic>() : null;
+      final List raw;
+      if (res.data is List) {
+        raw = res.data as List;
+      } else if (dataMap != null) {
+        raw = (dataMap['trades'] as List?) ??
+            (dataMap['data'] is List ? dataMap['data'] as List : null) ??
+            (dataMap['data'] is Map
+                ? (dataMap['data'] as Map)['trades'] as List?
+                : null) ??
+            (dataMap['results'] as List?) ??
+            const <dynamic>[];
+      } else {
+        raw = const <dynamic>[];
+      }
+
+      if (raw.isEmpty) break;
+
+      all.addAll(
+        raw
+            .whereType<Map>()
+            .map((e) => HomeTradeModel.fromJson(e.cast<String, dynamic>())),
+      );
+
+      final total = (dataMap?['total'] as num?)?.toInt();
+      final loaded = all.length;
+      final hasMore = total != null
+          ? loaded < total
+          : raw.length >= limit;
+      if (!hasMore) break;
+      page += 1;
+    }
+
+    return all;
+  }
+
   Future<void> _toggleSaved(String tradeId) async {
-    if (tradeId.isEmpty || _savingTradeId == tradeId) return;
+    if (tradeId.isEmpty || _savingTradeId != null) return;
 
     final wasSaved = _savedTradeIds.contains(tradeId);
     final optimistic = Set<String>.from(_savedTradeIds);
@@ -165,7 +221,6 @@ class _BatchDetailsPageState extends State<BatchDetailsPage> {
           context: context,
           title: 'Trade saved',
           message: 'Added to your saved trades.',
-          duration: const Duration(seconds: 2),
         );
       } else {
         await CommonAppNotificationBar.error(
@@ -232,6 +287,8 @@ class _BatchDetailsPageState extends State<BatchDetailsPage> {
               ],
             ),
           ),
+          if (_savingTradeId != null)
+            const Positioned.fill(child: AppLoaderOverlay()),
         ],
       ),
     );
@@ -239,8 +296,12 @@ class _BatchDetailsPageState extends State<BatchDetailsPage> {
 
   Widget _content() {
     final plan = _plan!;
-    final tags = <String>[...plan.segments, ...plan.horizons];
     final initials = _initials(plan.analystName);
+    final visibleTrades = _trades.where((trade) {
+      final live = trade.state.isLive;
+      return _tradeTab == TradesStatusTab.active ? live : !live;
+    }).toList();
+    final about = plan.description?.trim() ?? '';
     return RefreshIndicator(
       onRefresh: () => _load(forceSpinner: true),
       child: ListView(
@@ -256,23 +317,20 @@ class _BatchDetailsPageState extends State<BatchDetailsPage> {
           Container(
             padding: AppSize.insets(
               context,
-              left: 18,
-              right: 18,
-              top: 20,
-              bottom: 18,
+              left: 12,
+              right: 12,
+              top: 12,
+              bottom: 10,
             ),
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: <Color>[Color(0xFF0B2A63), Color(0xFF1A5CC8)],
-              ),
-              borderRadius: BorderRadius.circular(AppSize.r(context, 22)),
+              color: ColorConstants.white,
+              borderRadius: BorderRadius.circular(AppSize.r(context, 14)),
+              border: Border.all(color: ColorConstants.line),
               boxShadow: <BoxShadow>[
                 BoxShadow(
-                  color: ColorConstants.brandBlue.withValues(alpha: 0.22),
-                  blurRadius: 24,
-                  offset: const Offset(0, 10),
+                  color: ColorConstants.shadowSoft.withValues(alpha: 0.06),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
                 ),
               ],
             ),
@@ -281,44 +339,39 @@ class _BatchDetailsPageState extends State<BatchDetailsPage> {
               children: <Widget>[
                 Text(
                   plan.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyleConstants.screenTitle.copyWith(
-                    fontSize: AppSize.sp(context, 24),
-                    color: ColorConstants.white,
-                    height: 1.15,
+                    fontSize: AppSize.sp(context, 15),
+                    color: ColorConstants.ink,
+                    height: 1.2,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-                SizedBox(height: AppSize.h(context, 18)),
+                SizedBox(height: AppSize.h(context, 10)),
                 Material(
-                  color: ColorConstants.white.withValues(alpha: 0.11),
-                  borderRadius: BorderRadius.circular(AppSize.r(context, 16)),
+                  color: ColorConstants.pageBackground,
+                  borderRadius: BorderRadius.circular(AppSize.r(context, 10)),
                   child: InkWell(
                     onTap: () => context.push(
                       AppRoutingName.advisorProfile,
                       extra: plan.analystId,
                     ),
                     borderRadius:
-                        BorderRadius.circular(AppSize.r(context, 16)),
+                        BorderRadius.circular(AppSize.r(context, 10)),
                     child: Padding(
-                      padding: EdgeInsets.all(AppSize.r(context, 12)),
+                      padding: EdgeInsets.symmetric(
+                        horizontal: AppSize.w(context, 8),
+                        vertical: AppSize.h(context, 6),
+                      ),
                       child: Row(
                         children: <Widget>[
-                          Container(
-                            width: AppSize.r(context, 48),
-                            height: AppSize.r(context, 48),
-                            alignment: Alignment.center,
-                            decoration: BoxDecoration(
-                              color: ColorConstants.white,
-                              borderRadius:
-                                  BorderRadius.circular(AppSize.r(context, 14)),
-                            ),
-                            child: Text(
-                              initials,
-                              style: TextStyleConstants.cardTitle.copyWith(
-                                color: ColorConstants.brandBlue,
-                              ),
-                            ),
+                          _AnalystAvatar(
+                            initials: initials,
+                            imageUrl: plan.analystProfilePicUrl,
+                            size: AppSize.r(context, 32),
                           ),
-                          SizedBox(width: AppSize.w(context, 12)),
+                          SizedBox(width: AppSize.w(context, 8)),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -326,68 +379,104 @@ class _BatchDetailsPageState extends State<BatchDetailsPage> {
                                 Text(
                                   'Managed by',
                                   style: TextStyleConstants.caption.copyWith(
-                                    color: ColorConstants.white
-                                        .withValues(alpha: 0.72),
+                                    fontSize: AppSize.sp(context, 10),
+                                    color: ColorConstants.mute,
+                                    height: 1.1,
                                   ),
                                 ),
-                                SizedBox(height: AppSize.h(context, 2)),
                                 Text(
                                   plan.analystName,
-                                  style:
-                                      TextStyleConstants.cardTitle.copyWith(
-                                    fontSize: AppSize.sp(context, 15),
-                                    color: ColorConstants.white,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyleConstants.cardTitle.copyWith(
+                                    fontSize: AppSize.sp(context, 12.5),
+                                    color: ColorConstants.ink,
+                                    height: 1.2,
                                   ),
                                 ),
                               ],
                             ),
                           ),
+                          if (plan.riskLevel?.trim().isNotEmpty == true) ...<Widget>[
+                            _MetaChip(
+                              label: _riskLabel(plan.riskLevel!),
+                              tone: _MetaChipTone.risk,
+                            ),
+                            SizedBox(width: AppSize.w(context, 6)),
+                          ],
                           if (plan.analystSebiNumber?.isNotEmpty == true)
                             const SebiVerifiedPill(compact: true),
-                          const Icon(
+                          Icon(
                             Icons.chevron_right_rounded,
-                            color: ColorConstants.white,
+                            size: AppSize.r(context, 18),
+                            color: ColorConstants.soft,
                           ),
                         ],
                       ),
                     ),
                   ),
                 ),
-                SizedBox(height: AppSize.h(context, 16)),
-                Wrap(
-                  spacing: AppSize.w(context, 8),
-                  runSpacing: AppSize.h(context, 8),
-                  children: <Widget>[
-                    RiskBadge(
-                      level: RiskBadge.fromString(plan.riskLevel ?? ''),
+                if (about.isNotEmpty) ...<Widget>[
+                  SizedBox(height: AppSize.h(context, 12)),
+                  Text(
+                    about,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyleConstants.bodyMedium.copyWith(
+                      fontSize: AppSize.sp(context, 11.5),
+                      color: ColorConstants.mute,
+                      height: 1.3,
                     ),
-                    ...tags.map((tag) => SegmentTagChip(label: tag)),
-                  ],
-                ),
+                  ),
+                ],
+                if (plan.segments.isNotEmpty) ...<Widget>[
+                  SizedBox(height: AppSize.h(context, 12)),
+                  _LabeledChipRow(
+                    label: 'Segment',
+                    chips: plan.segments
+                        .map(
+                          (s) => _MetaChip(
+                            label: s,
+                            tone: _MetaChipTone.segment,
+                          ),
+                        )
+                        .toList(),
+                  ),
+                ],
+                if (plan.horizons.isNotEmpty) ...<Widget>[
+                  SizedBox(height: AppSize.h(context, 6)),
+                  _LabeledChipRow(
+                    label: 'Horizon',
+                    chips: plan.horizons
+                        .map(
+                          (h) => _MetaChip(
+                            label: h,
+                            tone: _MetaChipTone.horizon,
+                          ),
+                        )
+                        .toList(),
+                  ),
+                ],
               ],
             ),
           ),
-          SizedBox(height: AppSize.h(context, 24)),
-          _SectionCard(
-            icon: Icons.info_outline_rounded,
-            title: 'About this batch',
-            child: Text(
-              plan.description?.trim().isNotEmpty == true
-                  ? plan.description!.trim()
-                  : plan.name,
-              style: TextStyleConstants.bodyMedium.copyWith(
-                color: ColorConstants.mute,
-                height: 1.5,
-              ),
-            ),
-          ),
-          SizedBox(height: AppSize.h(context, 22)),
-          _SectionHeading(
-            icon: Icons.candlestick_chart_rounded,
-            title: 'Recent trades',
-          ),
           SizedBox(height: AppSize.h(context, 12)),
-          if (_trades.isEmpty)
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: _SectionHeading(
+                  icon: Icons.candlestick_chart_rounded,
+                  title: 'Recent trades',
+                ),
+              ),
+              _TradeStatusDropdown(
+                value: _tradeTab,
+                onChanged: (tab) => setState(() => _tradeTab = tab),
+              ),
+            ],
+          ),
+          SizedBox(height: AppSize.h(context, 14)),
+          if (visibleTrades.isEmpty)
             Container(
               width: double.infinity,
               padding: AppSize.symmetric(context, vertical: 28),
@@ -411,14 +500,18 @@ class _BatchDetailsPageState extends State<BatchDetailsPage> {
                   ),
                   SizedBox(height: AppSize.h(context, 10)),
                   Text(
-                    'No recent trades yet',
+                    _tradeTab == TradesStatusTab.active
+                        ? 'No active trades'
+                        : 'No closed trades',
                     style: TextStyleConstants.cardTitle.copyWith(
                       fontSize: AppSize.sp(context, 15),
                     ),
                   ),
                   SizedBox(height: AppSize.h(context, 4)),
                   Text(
-                    'New trade ideas from this batch will appear here.',
+                    _tradeTab == TradesStatusTab.active
+                        ? 'Live ideas from this batch will appear here.'
+                        : 'Closed trades from this batch will appear here.',
                     textAlign: TextAlign.center,
                     style: TextStyleConstants.caption.copyWith(
                       color: ColorConstants.mute,
@@ -428,26 +521,13 @@ class _BatchDetailsPageState extends State<BatchDetailsPage> {
               ),
             )
           else
-            ..._trades.take(3).map(
-                  (trade) => Padding(
-                    padding: EdgeInsets.only(
-                      bottom: AppSize.h(context, 14),
-                    ),
-                    child: CommonTradingCard(
-                      data: mapHomeTradeToCard(
-                        trade,
-                        savedIds: _savedTradeIds,
-                        onSaveTap: trade.id.isEmpty
-                            ? null
-                            : () => _toggleSaved(trade.id),
-                      ),
-                      onViewDetails: () => context.push(
-                        AppRoutingName.tradeDetails,
-                        extra: trade,
-                      ),
-                    ),
-                  ),
-                ),
+            _RecentTradesSection(
+              trades: visibleTrades,
+              savedTradeIds: _savedTradeIds,
+              savingTradeId: _savingTradeId,
+              onToggleSaved: _toggleSaved,
+              isActive: _tradeTab == TradesStatusTab.active,
+            ),
           SizedBox(height: AppSize.h(context, 22)),
           _SectionHeading(
             icon: Icons.workspace_premium_outlined,
@@ -572,6 +652,243 @@ class _BatchDetailsPageState extends State<BatchDetailsPage> {
         name.trim().split(RegExp(r'\s+')).where((part) => part.isNotEmpty);
     return parts.take(2).map((part) => part[0].toUpperCase()).join();
   }
+
+  String _riskLabel(String raw) {
+    switch (RiskBadge.fromString(raw)) {
+      case RiskLevel.low:
+        return 'Low risk';
+      case RiskLevel.medium:
+        return 'Medium risk';
+      case RiskLevel.high:
+        return 'High risk';
+    }
+  }
+}
+
+enum _MetaChipTone { risk, segment, horizon }
+
+class _RecentTradesSection extends StatelessWidget {
+  const _RecentTradesSection({
+    required this.trades,
+    required this.savedTradeIds,
+    required this.savingTradeId,
+    required this.onToggleSaved,
+    required this.isActive,
+  });
+
+  final List<HomeTrade> trades;
+  final Set<String> savedTradeIds;
+  final String? savingTradeId;
+  final ValueChanged<String> onToggleSaved;
+  final bool isActive;
+
+  @override
+  Widget build(BuildContext context) {
+    final columns = ResponsiveLayout.cardGridColumns(context);
+    if (columns > 1) {
+      return GridView.builder(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: columns,
+          mainAxisSpacing: 12,
+          crossAxisSpacing: 12,
+          mainAxisExtent: columns >= 3
+              ? (isActive ? 235 : 225)
+              : 300,
+        ),
+        itemCount: trades.length,
+        itemBuilder: (context, index) {
+          final trade = trades[index];
+          return Align(
+            alignment: Alignment.topCenter,
+            child: CommonTradingCard(
+              data: mapHomeTradeToCard(
+                trade,
+                savedIds: savedTradeIds,
+                isSaving: savingTradeId == trade.id,
+                onSaveTap: trade.id.isEmpty
+                    ? null
+                    : () => onToggleSaved(trade.id),
+              ),
+              onViewDetails: () => context.push(
+                AppRoutingName.tradeDetails,
+                extra: trade,
+              ),
+            ),
+          );
+        },
+      );
+    }
+
+    return Column(
+      children: trades
+          .map(
+            (trade) => Padding(
+              padding: EdgeInsets.only(bottom: AppSize.h(context, 14)),
+              child: CommonTradingCard(
+                data: mapHomeTradeToCard(
+                  trade,
+                  savedIds: savedTradeIds,
+                  isSaving: savingTradeId == trade.id,
+                  onSaveTap: trade.id.isEmpty
+                      ? null
+                      : () => onToggleSaved(trade.id),
+                ),
+                onViewDetails: () => context.push(
+                  AppRoutingName.tradeDetails,
+                  extra: trade,
+                ),
+              ),
+            ),
+          )
+          .toList(),
+    );
+  }
+}
+
+class _LabeledChipRow extends StatelessWidget {
+  const _LabeledChipRow({
+    required this.label,
+    required this.chips,
+  });
+
+  final String label;
+  final List<Widget> chips;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: <Widget>[
+        SizedBox(
+          width: AppSize.w(context, 58),
+          child: Text(
+            label,
+            style: TextStyleConstants.caption.copyWith(
+              fontSize: AppSize.sp(context, 11),
+              fontWeight: FontWeight.w600,
+              color: ColorConstants.mute,
+            ),
+          ),
+        ),
+        Expanded(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: <Widget>[
+                for (var i = 0; i < chips.length; i++) ...<Widget>[
+                  if (i > 0) SizedBox(width: AppSize.w(context, 6)),
+                  chips[i],
+                ],
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _MetaChip extends StatelessWidget {
+  const _MetaChip({required this.label, required this.tone});
+
+  final String label;
+  final _MetaChipTone tone;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color bg;
+    final Color fg;
+    final Color border;
+    switch (tone) {
+      case _MetaChipTone.risk:
+        bg = ColorConstants.liveBg;
+        fg = ColorConstants.brandBlue;
+        border = ColorConstants.brandBlue.withValues(alpha: 0.2);
+      case _MetaChipTone.segment:
+        bg = const Color(0xFFF3F5F9);
+        fg = ColorConstants.ink;
+        border = ColorConstants.line;
+      case _MetaChipTone.horizon:
+        bg = ColorConstants.white;
+        fg = ColorConstants.mute;
+        border = ColorConstants.line;
+    }
+
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: AppSize.w(context, 9),
+        vertical: AppSize.h(context, 5),
+      ),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(AppSize.r(context, 8)),
+        border: Border.all(color: border),
+      ),
+      child: Text(
+        label,
+        style: TextStyleConstants.caption.copyWith(
+          fontSize: AppSize.sp(context, 10.5),
+          fontWeight: FontWeight.w600,
+          color: fg,
+          height: 1,
+        ),
+      ),
+    );
+  }
+}
+
+class _TradeStatusDropdown extends StatelessWidget {
+  const _TradeStatusDropdown({
+    required this.value,
+    required this.onChanged,
+  });
+
+  final TradesStatusTab value;
+  final ValueChanged<TradesStatusTab> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: AppSize.h(context, 32),
+      padding: EdgeInsets.symmetric(horizontal: AppSize.w(context, 8)),
+      decoration: BoxDecoration(
+        color: ColorConstants.white,
+        borderRadius: BorderRadius.circular(AppSize.r(context, 8)),
+        border: Border.all(color: ColorConstants.line),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<TradesStatusTab>(
+          value: value,
+          isDense: true,
+          icon: Icon(
+            Icons.keyboard_arrow_down_rounded,
+            size: AppSize.r(context, 18),
+            color: ColorConstants.mute,
+          ),
+          style: TextStyleConstants.caption.copyWith(
+            fontSize: AppSize.sp(context, 12),
+            fontWeight: FontWeight.w600,
+            color: ColorConstants.ink,
+          ),
+          items: const <DropdownMenuItem<TradesStatusTab>>[
+            DropdownMenuItem(
+              value: TradesStatusTab.active,
+              child: Text('Active'),
+            ),
+            DropdownMenuItem(
+              value: TradesStatusTab.closed,
+              child: Text('Closed'),
+            ),
+          ],
+          onChanged: (tab) {
+            if (tab != null) onChanged(tab);
+          },
+        ),
+      ),
+    );
+  }
 }
 
 class _ActiveSubscription extends StatelessWidget {
@@ -619,24 +936,24 @@ class _SectionHeading extends StatelessWidget {
     return Row(
       children: <Widget>[
         Container(
-          width: AppSize.r(context, 34),
-          height: AppSize.r(context, 34),
+          width: AppSize.r(context, 28),
+          height: AppSize.r(context, 28),
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: ColorConstants.liveBg,
-            borderRadius: BorderRadius.circular(AppSize.r(context, 10)),
+            borderRadius: BorderRadius.circular(AppSize.r(context, 8)),
           ),
           child: Icon(
             icon,
-            size: AppSize.r(context, 19),
+            size: AppSize.r(context, 16),
             color: ColorConstants.brandBlue,
           ),
         ),
-        SizedBox(width: AppSize.w(context, 10)),
+        SizedBox(width: AppSize.w(context, 8)),
         Text(
           title,
           style: TextStyleConstants.cardTitle.copyWith(
-            fontSize: AppSize.sp(context, 19),
+            fontSize: AppSize.sp(context, 16),
           ),
         ),
       ],
@@ -644,41 +961,48 @@ class _SectionHeading extends StatelessWidget {
   }
 }
 
-class _SectionCard extends StatelessWidget {
-  const _SectionCard({
-    required this.icon,
-    required this.title,
-    required this.child,
+class _AnalystAvatar extends StatelessWidget {
+  const _AnalystAvatar({
+    required this.initials,
+    required this.size,
+    this.imageUrl,
   });
 
-  final IconData icon;
-  final String title;
-  final Widget child;
+  final String initials;
+  final double size;
+  final String? imageUrl;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.all(AppSize.r(context, 18)),
-      decoration: BoxDecoration(
+    final url = imageUrl?.trim();
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(size * 0.28),
+      child: Container(
+        width: size,
+        height: size,
         color: ColorConstants.white,
-        borderRadius: BorderRadius.circular(AppSize.r(context, 18)),
-        border: Border.all(color: ColorConstants.line),
-        boxShadow: <BoxShadow>[
-          BoxShadow(
-            color: ColorConstants.shadowSoft.withValues(alpha: 0.05),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          _SectionHeading(icon: icon, title: title),
-          SizedBox(height: AppSize.h(context, 14)),
-          child,
-        ],
+        alignment: Alignment.center,
+        child: url != null && url.isNotEmpty
+            ? Image.network(
+                url,
+                width: size,
+                height: size,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => Text(
+                  initials,
+                  style: TextStyleConstants.cardTitle.copyWith(
+                    fontSize: size * 0.34,
+                    color: ColorConstants.brandBlue,
+                  ),
+                ),
+              )
+            : Text(
+                initials,
+                style: TextStyleConstants.cardTitle.copyWith(
+                  fontSize: size * 0.34,
+                  color: ColorConstants.brandBlue,
+                ),
+              ),
       ),
     );
   }

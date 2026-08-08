@@ -144,6 +144,7 @@ class DiscoverBatchModel {
     this.tiers = const [],
     this.subscriberCount,
     this.analystSebiNumber,
+    this.analystProfilePicUrl,
     this.isActive = true,
   });
 
@@ -153,6 +154,7 @@ class DiscoverBatchModel {
   final String name;
   final String? description;
   final String? analystSebiNumber;
+  final String? analystProfilePicUrl;
   final double price;
   final String? riskLevel;
   final List<String> segments;
@@ -190,9 +192,27 @@ class DiscoverBatchModel {
             const [],
         subscriberCount: (json['subscriber_count'] as num?)?.toInt(),
         analystSebiNumber: json['sebi_license_number'] as String?,
+        analystProfilePicUrl: _nonEmptyString(
+          json['analyst_profile_pic_url'] ??
+              json['analyst_avatar_url'] ??
+              json['profile_pic_url'] ??
+              json['avatar_url'] ??
+              (json['analyst'] is Map
+                  ? (json['analyst'] as Map)['profile_pic_url']
+                  : null) ??
+              (json['analyst'] is Map
+                  ? (json['analyst'] as Map)['avatar_url']
+                  : null),
+        ),
         isActive: json['is_active'] as bool? ?? true,
       );
 
   static List<String> _stringList(dynamic v) =>
       (v as List?)?.whereType<String>().toList() ?? const [];
+
+  static String? _nonEmptyString(dynamic value) {
+    if (value is! String) return null;
+    final text = value.trim();
+    return text.isEmpty ? null : text;
+  }
 }

@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import '../platform/app_platform.dart';
@@ -13,13 +14,19 @@ import 'push_payload.dart';
 /// - iOS: `Runner/notification_chime.wav` → sound `notification_chime.wav`
 ///
 /// No-op early exit on web only — mobile path is unchanged.
+/// Must stay in sync with [StoXifyApplication.CHANNEL_ID] on Android.
 class LocalNotificationsService {
   LocalNotificationsService._();
 
   static final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
 
-  static const String channelId = 'stoxify_alerts';
+  static const String channelId = 'stoxify_alerts_chime_v3';
+  static const List<String> _legacyChannelIds = <String>[
+    'stoxify_alerts',
+    'stoxify_alerts_chime_v1',
+    'stoxify_alerts_chime_v2',
+  ];
   static const String channelName = 'StoXify Alerts';
   static const String channelDescription =
       'Trades, subscriptions, and market price alerts';
@@ -30,21 +37,26 @@ class LocalNotificationsService {
   /// Full filename for iOS bundle sound.
   static const String iosSoundName = 'notification_chime.wav';
 
+  static const MethodChannel _soundChannel =
+      MethodChannel('stoxify/notification_sound');
+
   static bool _ready = false;
   static void Function(PushPayload payload)? onSelect;
 
   static Future<void> initialize({
-    required void Function(PushPayload payload) onNotificationTap,
+    void Function(PushPayload payload)? onNotificationTap,
   }) async {
     if (kIsWeb) return;
+    if (onNotificationTap != null) {
+      onSelect = onNotificationTap;
+    }
     if (_ready) return;
-    onSelect = onNotificationTap;
 
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
     const iosInit = DarwinInitializationSettings(
-      requestAlertPermission: false,
-      requestBadgePermission: false,
-      requestSoundPermission: false,
+      requestAlertPermission: true,
+      requestBadgePermission: true,
+      requestSoundPermission: true,
     );
 
     await _plugin.initialize(
@@ -54,23 +66,52 @@ class LocalNotificationsService {
     );
 
     if (AppPlatform.isAndroid) {
+      await _ensureAndroidChannel();
       final android = _plugin.resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin>();
-      await android?.createNotificationChannel(
-        const AndroidNotificationChannel(
-          channelId,
-          channelName,
-          description: channelDescription,
-          importance: Importance.high,
-          playSound: true,
-          sound: RawResourceAndroidNotificationSound(androidSoundName),
-          enableVibration: true,
-        ),
-      );
       await android?.requestNotificationsPermission();
     }
 
     _ready = true;
+  }
+
+  /// Safe to call from the FCM background isolate (no tap callback required).
+  static Future<void> ensureReady() => initialize();
+
+  /// Plays the chime via Android MediaPlayer (notification audio stream).
+  static Future<void> playChime() async {
+    if (kIsWeb || !AppPlatform.isAndroid) return;
+    try {
+      await _soundChannel.invokeMethod<void>('playChime');
+    } catch (e) {
+      debugPrint('[FCM] playChime failed: $e');
+    }
+  }
+
+  static Future<void> _ensureAndroidChannel() async {
+    final android = _plugin.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
+    if (android == null) return;
+
+    for (final id in <String>[..._legacyChannelIds, channelId]) {
+      try {
+        await android.deleteNotificationChannel(id);
+      } catch (_) {}
+    }
+
+    await android.createNotificationChannel(
+      const AndroidNotificationChannel(
+        channelId,
+        channelName,
+        description: channelDescription,
+        importance: Importance.max,
+        playSound: true,
+        sound: RawResourceAndroidNotificationSound(androidSoundName),
+        enableVibration: true,
+        enableLights: true,
+        showBadge: true,
+      ),
+    );
   }
 
   static void _onResponse(NotificationResponse response) {
@@ -93,14 +134,22 @@ class LocalNotificationsService {
 
   /// If the app was launched by tapping a local notification.
   static Future<PushPayload?> getLaunchPayload() async {
-    if (kIsWeb || !_ready) return null;
+    if (kIsWeb) return null;
+    await ensureReady();
+    if (!_ready) return null;
     final details = await _plugin.getNotificationAppLaunchDetails();
     if (details?.didNotificationLaunchApp != true) return null;
     return _payloadFromString(details!.notificationResponse?.payload);
   }
 
-  static Future<void> showFromPush(PushPayload payload) async {
-    if (kIsWeb || !_ready) return;
+  static Future<void> showFromPush(
+    PushPayload payload, {
+    bool playTraySound = true,
+    bool playFallbackChime = false,
+  }) async {
+    if (kIsWeb) return;
+    await ensureReady();
+    if (!_ready) return;
 
     final title = payload.title?.isNotEmpty == true
         ? payload.title!
@@ -111,13 +160,18 @@ class LocalNotificationsService {
       channelId,
       channelName,
       channelDescription: channelDescription,
-      importance: Importance.high,
-      priority: Priority.high,
-      playSound: true,
-      sound: const RawResourceAndroidNotificationSound(androidSoundName),
+      importance: Importance.max,
+      priority: Priority.max,
+      playSound: playTraySound,
+      sound: playTraySound
+          ? const RawResourceAndroidNotificationSound(androidSoundName)
+          : null,
+      enableVibration: true,
       tag: payload.androidTag,
       icon: '@mipmap/ic_launcher',
       styleInformation: BigTextStyleInformation(body),
+      category: AndroidNotificationCategory.message,
+      audioAttributesUsage: AudioAttributesUsage.notification,
     );
 
     const iosDetails = DarwinNotificationDetails(
@@ -125,6 +179,7 @@ class LocalNotificationsService {
       presentBadge: true,
       presentSound: true,
       sound: iosSoundName,
+      interruptionLevel: InterruptionLevel.timeSensitive,
     );
 
     final id = payload.notificationId?.hashCode.abs() ??
@@ -137,6 +192,10 @@ class LocalNotificationsService {
       NotificationDetails(android: androidDetails, iOS: iosDetails),
       payload: jsonEncode(payload.toLocalPayload()),
     );
+
+    if (playFallbackChime) {
+      await playChime();
+    }
   }
 
   static String _defaultTitle(String type) {

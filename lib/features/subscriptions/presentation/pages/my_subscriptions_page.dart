@@ -475,42 +475,46 @@ class _CancelSubscriptionDialogState extends State<_CancelSubscriptionDialog> {
             onChanged: (_) => setState(() {}),
           ),
           SizedBox(height: AppSize.h(context, 8)),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          Column(
             children: <Widget>[
-              Expanded(
+              SizedBox(
+                width: double.infinity,
+                height: AppSize.h(context, 44),
                 child: OutlinedButton(
                   onPressed: () => Navigator.of(context).pop(),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: ColorConstants.brandBlue,
                     side: const BorderSide(color: ColorConstants.brandBlue),
-                    padding: AppSize.symmetric(
-                      context,
-                      horizontal: 8,
-                      vertical: 12,
+                    padding: EdgeInsets.symmetric(
+                      horizontal: AppSize.w(context, 12),
                     ),
-                    minimumSize: Size.zero,
+                    minimumSize: Size(double.infinity, AppSize.h(context, 44)),
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     visualDensity: VisualDensity.compact,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(
-                        AppSize.r(context, 12),
+                        AppSize.r(context, 10),
                       ),
                     ),
                   ),
                   child: Text(
                     'Keep subscription',
+                    maxLines: 1,
+                    softWrap: false,
                     textAlign: TextAlign.center,
                     style: TextStyleConstants.caption.copyWith(
                       fontWeight: FontWeight.w600,
                       color: ColorConstants.brandBlue,
-                      fontSize: AppSize.sp(context, 12),
+                      fontSize: AppSize.sp(context, 13),
+                      height: 1,
                     ),
                   ),
                 ),
               ),
-              SizedBox(width: AppSize.w(context, 10)),
-              Expanded(
+              SizedBox(height: AppSize.h(context, 10)),
+              SizedBox(
+                width: double.infinity,
+                height: AppSize.h(context, 44),
                 child: FilledButton(
                   onPressed: canSubmit
                       ? () => Navigator.of(context)
@@ -521,27 +525,28 @@ class _CancelSubscriptionDialogState extends State<_CancelSubscriptionDialog> {
                     disabledBackgroundColor:
                         ColorConstants.red.withValues(alpha: 0.35),
                     foregroundColor: ColorConstants.white,
-                    padding: AppSize.symmetric(
-                      context,
-                      horizontal: 8,
-                      vertical: 12,
+                    padding: EdgeInsets.symmetric(
+                      horizontal: AppSize.w(context, 12),
                     ),
-                    minimumSize: Size.zero,
+                    minimumSize: Size(double.infinity, AppSize.h(context, 44)),
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     visualDensity: VisualDensity.compact,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(
-                        AppSize.r(context, 12),
+                        AppSize.r(context, 10),
                       ),
                     ),
                   ),
                   child: Text(
                     'Cancel subscription',
+                    maxLines: 1,
+                    softWrap: false,
                     textAlign: TextAlign.center,
                     style: TextStyleConstants.caption.copyWith(
                       fontWeight: FontWeight.w600,
                       color: ColorConstants.white,
-                      fontSize: AppSize.sp(context, 12),
+                      fontSize: AppSize.sp(context, 13),
+                      height: 1,
                     ),
                   ),
                 ),

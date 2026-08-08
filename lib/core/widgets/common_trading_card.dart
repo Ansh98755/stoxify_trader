@@ -25,7 +25,9 @@ class CommonTradingCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final bool hasDirection = data.dir != null;
     final bool isShort = data.dir == TradeDir.short;
-    final bool isLoss = resolveTradingCardIsLoss(data);
+    // Closed trades always use the loss (red) card theme.
+    final bool isLoss =
+        !data.isLive || resolveTradingCardIsLoss(data);
 
     final bool compact = data.compact;
     final double wrapperTop = compact ? 0 : AppSize.h(context, 14);
@@ -56,18 +58,22 @@ class CommonTradingCard extends StatelessWidget {
             onViewDetails: onViewDetails,
           ),
         ),
-        if (!compact)
+        if (data.onSaveTap != null || data.isSaving)
           Positioned(
-            top: AppSize.h(context, 11),
+            top: AppSize.h(context, compact ? 6 : 11),
             right: AppSize.w(context, -4),
             child: Semantics(
               button: true,
               selected: data.isSaved,
-              label: data.isSaved ? 'Remove saved trade' : 'Save trade',
+              label: data.isSaving
+                  ? 'Saving trade'
+                  : (data.isSaved ? 'Remove saved trade' : 'Save trade'),
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onTap: data.onSaveTap,
-                child: _AnimatedBookmarkRibbon(isSaved: data.isSaved),
+                onTap: data.isSaving ? null : data.onSaveTap,
+                child: data.isSaving
+                    ? _SavingBookmarkIndicator(compact: compact)
+                    : _AnimatedBookmarkRibbon(isSaved: data.isSaved),
               ),
             ),
           ),
@@ -95,8 +101,6 @@ class _CardBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final String statusText =
-        data.tradeStatus ?? (isLoss ? 'Closed in loss' : 'In profit');
     final String estGain = data.estGain ?? (isLoss ? '-6.00%' : '+18.00%');
     final String liveRet = data.liveRet ?? (isLoss ? '-1.00x' : '+3.86%');
 
@@ -173,26 +177,30 @@ class _CardBody extends StatelessWidget {
             _InstrumentRow(
               symbol: data.symbol,
               companyName: data.company,
-              batchName: data.batchName,
               logoUrl: data.logoUrl,
               px: px,
               change: change,
               isLoss: isLoss,
+              isLive: data.isLive,
+              exitAt: data.exitAt,
             ),
             SizedBox(height: AppSize.h(context, 10)),
-            // _StatusBand(text: statusText, isLoss: isLoss),
-            // SizedBox(height: AppSize.h(context, 12)),
-            _TimelineLiveTag(
-              currentPrice: px,
-              entry: data.entry ?? '0',
-              stopLoss: data.sl ?? '0',
-              target: data.target ?? '0',
-            ),
-            SizedBox(height: AppSize.h(context, 10)),
+            if (data.isLive) ...<Widget>[
+              _TimelineLiveTag(
+                currentPrice: px,
+                entry: data.entry ?? '0',
+                stopLoss: data.sl ?? '0',
+                target: data.target ?? '0',
+                showLiveMarker: true,
+              ),
+              SizedBox(height: AppSize.h(context, 10)),
+            ],
             _StatsCard(
               estGain: estGain,
               liveRet: liveRet,
               themeIsLoss: isLoss,
+              isLive: data.isLive,
+              exitPrice: data.exitPrice,
             ),
             SizedBox(height: AppSize.h(context, 2)),
             _LevelsRow(
@@ -241,27 +249,25 @@ class _InstrumentRow extends StatelessWidget {
   const _InstrumentRow({
     required this.symbol,
     this.companyName,
-    this.batchName,
     this.logoUrl,
     required this.px,
     required this.change,
     required this.isLoss,
+    required this.isLive,
+    this.exitAt,
   });
 
   final String symbol;
   final String? companyName;
-  final String? batchName;
   final String? logoUrl;
   final String px;
   final String change;
   final bool isLoss;
+  final bool isLive;
+  final String? exitAt;
 
   @override
   Widget build(BuildContext context) {
-    final String batch = (batchName ?? '').trim().isEmpty
-        ? 'Batch'
-        : batchName!.trim();
-
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -276,57 +282,95 @@ class _InstrumentRow extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: Text(
-                  symbol,
-                  style: TextStyle(
-                    fontFamily: TextStyleConstants.fontFamilyDisplay,
-                    fontWeight: FontWeight.w600,
-                    fontSize: AppSize.sp(context, 16),
-                    color: ColorConstants.navy,
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: <Widget>[
+                  Expanded(
+                    child: Text(
+                      symbol,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontFamily: TextStyleConstants.fontFamilyDisplay,
+                        fontWeight: FontWeight.w600,
+                        fontSize: AppSize.sp(context, 16),
+                        color: ColorConstants.navy,
+                      ),
+                    ),
                   ),
-                ),
+                  SizedBox(width: AppSize.w(context, 8)),
+                  if (isLive)
+                    Text(
+                      px,
+                      style: TextStyle(
+                        fontFamily: TextStyleConstants.fontFamilyDisplay,
+                        fontWeight: FontWeight.w600,
+                        fontSize: AppSize.sp(context, 15),
+                        color: ColorConstants.navy,
+                      ),
+                    )
+                  else
+                    Text(
+                      'Exit Date & Time',
+                      style: TextStyle(
+                        fontFamily: TextStyleConstants.fontFamilyBody,
+                        fontWeight: FontWeight.w500,
+                        fontSize: AppSize.sp(context, 10),
+                        color: ColorConstants.mute,
+                      ),
+                    ),
+                ],
               ),
-              ///Todo implementation of the complete trade name
-              // Padding(
-              //   padding: EdgeInsets.only(bottom: AppSize.h(context, 6)),
-              //   child: Text(
-              //     batch,
-              //     style: TextStyleConstants.body.copyWith(
-              //       fontSize: 10,
-              //     ),
-              //   ),
-              // ),
+              SizedBox(height: AppSize.h(context, 2)),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: <Widget>[
+                  Expanded(
+                    child: Text(
+                      (companyName ?? '').trim().isEmpty
+                          ? 'Complete Name'
+                          : companyName!.trim(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontFamily: TextStyleConstants.fontFamilyBody,
+                        fontWeight: FontWeight.w500,
+                        fontSize: AppSize.sp(context, 9),
+                        height: 1,
+                        color: ColorConstants.mute,
+                      ),
+                    ),
+                  ),
+                  SizedBox(width: AppSize.w(context, 8)),
+                  if (isLive)
+                    Text(
+                      change,
+                      style: TextStyle(
+                        fontFamily: TextStyleConstants.fontFamilyDisplay,
+                        fontWeight: FontWeight.w600,
+                        fontSize: AppSize.sp(context, 11),
+                        color: metricValueColor(change, themeIsLoss: isLoss),
+                      ),
+                    )
+                  else
+                    Text(
+                      ((exitAt ?? '').trim().isNotEmpty) ? exitAt!.trim() : '—',
+                      textAlign: TextAlign.right,
+                      style: TextStyle(
+                        fontFamily: TextStyleConstants.fontFamilyBody,
+                        fontWeight: FontWeight.w600,
+                        fontSize: AppSize.sp(context, 11),
+                        height: 1.25,
+                        color: ColorConstants.navy,
+                      ),
+                    ),
+                ],
+              ),
+              SizedBox(height: AppSize.h(context, 8)),
             ],
           ),
         ),
-        Padding(
-          padding: EdgeInsets.only(right: AppSize.w(context, 14)),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: <Widget>[
-              Text(
-                px,
-                style: TextStyle(
-                  fontFamily: TextStyleConstants.fontFamilyDisplay,
-                  fontWeight: FontWeight.w600,
-                  fontSize: AppSize.sp(context, 15),
-                  color: ColorConstants.navy,
-                ),
-              ),
-              Text(
-                change,
-                style: TextStyle(
-                  fontFamily: TextStyleConstants.fontFamilyDisplay,
-                  fontWeight: FontWeight.w600,
-                  fontSize: AppSize.sp(context, 11),
-                  color: metricValueColor(change, themeIsLoss: isLoss),
-                ),
-              ),
-            ],
-          ),
-        ),
+        SizedBox(width: AppSize.w(context, 14)),
       ],
     );
   }
@@ -502,12 +546,14 @@ class _TimelineLiveTag extends StatelessWidget {
     required this.entry,
     required this.stopLoss,
     required this.target,
+    this.showLiveMarker = true,
   });
 
   final String currentPrice;
   final String entry;
   final String stopLoss;
   final String target;
+  final bool showLiveMarker;
 
   static double? _priceFrom(String value) {
     final String normalized = value.replaceAll(RegExp(r'[^0-9.-]'), '');
@@ -538,11 +584,12 @@ class _TimelineLiveTag extends StatelessWidget {
           final double? slValue = _priceFrom(stopLoss);
           final double? entryValue = _priceFrom(entry);
           final double? targetValue = _priceFrom(target);
-          final double? liveValue = _priceFrom(currentPrice);
+          final double? liveValue = showLiveMarker
+              ? _priceFrom(currentPrice)
+              : null;
           final bool hasValidRange = slValue != null &&
               entryValue != null &&
               targetValue != null &&
-              liveValue != null &&
               (targetValue - slValue).abs() > 0.000001;
 
           // SL maps to 0 and Target maps to 1. The same calculation works
@@ -552,8 +599,8 @@ class _TimelineLiveTag extends StatelessWidget {
                   .clamp(0.08, 0.88)
                   .toDouble()
               : 90 / 310;
-          final double liveProgress = hasValidRange
-              ? ((liveValue! - slValue!) / (targetValue! - slValue!))
+          final double liveProgress = liveValue != null && hasValidRange
+              ? ((liveValue - slValue!) / (targetValue! - slValue!))
                   .clamp(0.0, 1.0)
                   .toDouble()
               : entryProgress;
@@ -623,31 +670,29 @@ class _TimelineLiveTag extends StatelessWidget {
                 dotSize: dotSize,
                 alignEnd: true,
               ),
-              AnimatedPositioned(
-                duration: const Duration(milliseconds: 180),
-                curve: Curves.easeOutCubic,
-                left: liveLabelX,
-                top: -AppSize.h(context, 12),
-                child: FractionalTranslation(
-                  translation: const Offset(-0.5, 0),
-                  child: Container(
-                    padding: EdgeInsets.symmetric(
-                      vertical: AppSize.h(context, 3),
-                      horizontal: AppSize.w(context, 8),
-                    ),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(AppSize.r(context, 8)),
-                      gradient: const LinearGradient(
-                        begin: Alignment.centerLeft,
-                        end: Alignment.centerRight,
-                        colors: <Color>[
-                          ColorConstants.red,
-                          ColorConstants.redBright,
-                        ],
+              if (showLiveMarker) ...<Widget>[
+                Positioned(
+                  left: liveLabelX,
+                  top: -AppSize.h(context, 12),
+                  child: FractionalTranslation(
+                    translation: const Offset(-0.5, 0),
+                    child: Container(
+                      padding: EdgeInsets.symmetric(
+                        vertical: AppSize.h(context, 3),
+                        horizontal: AppSize.w(context, 8),
                       ),
-                    ),
-                    child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 140),
+                      decoration: BoxDecoration(
+                        borderRadius:
+                            BorderRadius.circular(AppSize.r(context, 8)),
+                        gradient: const LinearGradient(
+                          begin: Alignment.centerLeft,
+                          end: Alignment.centerRight,
+                          colors: <Color>[
+                            ColorConstants.red,
+                            ColorConstants.redBright,
+                          ],
+                        ),
+                      ),
                       child: Text(
                         'Live $currentPrice',
                         key: ValueKey<String>(currentPrice),
@@ -661,32 +706,31 @@ class _TimelineLiveTag extends StatelessWidget {
                     ),
                   ),
                 ),
-              ),
-              AnimatedPositioned(
-                duration: const Duration(milliseconds: 180),
-                curve: Curves.easeOutCubic,
-                left: liveX - (AppSize.r(context, 12) / 2),
-                top: (lineY + (thickness / 2)) - (AppSize.r(context, 12) / 2),
-                child: Container(
-                  width: AppSize.r(context, 12),
-                  height: AppSize.r(context, 12),
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: ColorConstants.red,
-                    border: Border.all(
-                      color: ColorConstants.white,
-                      width: AppSize.r(context, 2),
-                    ),
-                    boxShadow: <BoxShadow>[
-                      BoxShadow(
-                        color: ColorConstants.red.withValues(alpha: 0.35),
-                        blurRadius: AppSize.r(context, 6),
-                        offset: Offset(0, AppSize.h(context, 1)),
+                Positioned(
+                  left: liveX - (AppSize.r(context, 12) / 2),
+                  top: (lineY + (thickness / 2)) -
+                      (AppSize.r(context, 12) / 2),
+                  child: Container(
+                    width: AppSize.r(context, 12),
+                    height: AppSize.r(context, 12),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: ColorConstants.red,
+                      border: Border.all(
+                        color: ColorConstants.white,
+                        width: AppSize.r(context, 2),
                       ),
-                    ],
+                      boxShadow: <BoxShadow>[
+                        BoxShadow(
+                          color: ColorConstants.red.withValues(alpha: 0.35),
+                          blurRadius: AppSize.r(context, 6),
+                          offset: Offset(0, AppSize.h(context, 1)),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
+              ],
             ],
           );
         },
@@ -817,11 +861,15 @@ class _StatsCard extends StatelessWidget {
     required this.estGain,
     required this.liveRet,
     required this.themeIsLoss,
+    required this.isLive,
+    this.exitPrice,
   });
 
   final String estGain;
   final String liveRet;
   final bool themeIsLoss;
+  final bool isLive;
+  final String? exitPrice;
 
   @override
   Widget build(BuildContext context) {
@@ -829,6 +877,15 @@ class _StatsCard extends StatelessWidget {
         metricValueColor(estGain, themeIsLoss: themeIsLoss);
     final Color liveColor =
         metricValueColor(liveRet, themeIsLoss: themeIsLoss);
+    final String leftLabel = isLive ? 'Estimated gains' : 'Final returns';
+    final String leftValue = isLive ? estGain : liveRet;
+    final Color leftColor = isLive ? estColor : liveColor;
+    final String rightLabel = isLive ? 'Live returns' : 'Exit price';
+    final String rightValue = isLive
+        ? liveRet
+        : ((exitPrice ?? '').trim().isNotEmpty ? exitPrice!.trim() : '—');
+    final Color rightColor =
+        isLive ? liveColor : ColorConstants.navy;
 
     return Column(
       children: <Widget>[
@@ -836,18 +893,18 @@ class _StatsCard extends StatelessWidget {
           children: <Widget>[
             Expanded(
               child: _MetricCell(
-                label: 'Estimated gains',
-                value: estGain,
-                valueColor: estColor,
+                label: leftLabel,
+                value: leftValue,
+                valueColor: leftColor,
                 alignEnd: false,
               ),
             ),
             const TaperedVerticalDivider(),
             Expanded(
               child: _MetricCell(
-                label: 'Live returns',
-                value: liveRet,
-                valueColor: liveColor,
+                label: rightLabel,
+                value: rightValue,
+                valueColor: rightColor,
                 alignEnd: true,
               ),
             ),
@@ -1226,6 +1283,31 @@ class _HangingGradientTag extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _SavingBookmarkIndicator extends StatelessWidget {
+  const _SavingBookmarkIndicator({required this.compact});
+
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final double size = AppSize.r(context, compact ? 28 : 32);
+    return SizedBox(
+      width: size,
+      height: size,
+      child: Center(
+        child: SizedBox(
+          width: size * 0.55,
+          height: size * 0.55,
+          child: const CircularProgressIndicator(
+            strokeWidth: 2,
+            color: ColorConstants.brandBlue,
+          ),
+        ),
       ),
     );
   }

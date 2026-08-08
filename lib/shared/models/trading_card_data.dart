@@ -24,6 +24,9 @@ class TradingCardData {
     this.cmp,
     this.change,
     this.tradeStatus,
+    this.isLive = true,
+    this.exitPrice,
+    this.exitAt,
     this.entry,
     this.analystName,
     this.logoUrl,
@@ -34,6 +37,7 @@ class TradingCardData {
     this.segment,
     this.asset,
     this.isSaved = false,
+    this.isSaving = false,
     this.onSaveTap,
     this.showLongSignal = false,
     this.rationale,
@@ -50,11 +54,19 @@ class TradingCardData {
   final String? cmp;
   final String? change;
   final bool isSaved;
+  /// True while a save/unsave API call is in flight for this card.
+  final bool isSaving;
   final VoidCallback? onSaveTap;
   final String? analystName;
   final String? logoUrl;
 
   final String? tradeStatus;
+  /// True while the trade is still open (LIVE / T1 / T2); false when closed.
+  final bool isLive;
+  /// Formatted exit price for closed trades (replaces LTP on the card).
+  final String? exitPrice;
+  /// Formatted exit date & time for closed trades.
+  final String? exitAt;
   final bool showLongSignal;
   final String? entry;
   final String? sl;
@@ -79,6 +91,9 @@ class TradingCardData {
     String? cmp,
     String? change,
     String? tradeStatus,
+    bool? isLive,
+    String? exitPrice,
+    String? exitAt,
     String? entry,
     String? analystName,
     String? logoUrl,
@@ -90,6 +105,7 @@ class TradingCardData {
     String? asset,
     String? rationale,
     bool? isSaved,
+    bool? isSaving,
     VoidCallback? onSaveTap,
     bool? showLongSignal,
     bool? compact,
@@ -104,6 +120,9 @@ class TradingCardData {
       cmp: cmp ?? this.cmp,
       change: change ?? this.change,
       tradeStatus: tradeStatus ?? this.tradeStatus,
+      isLive: isLive ?? this.isLive,
+      exitPrice: exitPrice ?? this.exitPrice,
+      exitAt: exitAt ?? this.exitAt,
       entry: entry ?? this.entry,
       analystName: analystName ?? this.analystName,
       logoUrl: logoUrl ?? this.logoUrl,
@@ -115,6 +134,7 @@ class TradingCardData {
       asset: asset ?? this.asset,
       rationale: rationale ?? this.rationale,
       isSaved: isSaved ?? this.isSaved,
+      isSaving: isSaving ?? this.isSaving,
       onSaveTap: onSaveTap ?? this.onSaveTap,
       showLongSignal: showLongSignal ?? this.showLongSignal,
       compact: compact ?? this.compact,

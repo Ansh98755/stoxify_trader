@@ -33,6 +33,8 @@ class HomeState extends Equatable {
     this.saveTradeError,
     this.savingTradeId,
     this.isNewUser = false,
+    this.tradeWsToastMessage,
+    this.tradeWsToastNonce = 0,
   });
 
   final HomeStatus status;
@@ -69,6 +71,10 @@ class HomeState extends Equatable {
 
   /// True for the current signed-in new-user session.
   final bool isNewUser;
+
+  /// Shown when an analyst modifies a trade over WebSocket (Home page listener).
+  final String? tradeWsToastMessage;
+  final int tradeWsToastNonce;
 
   bool get isLoading => status == HomeStatus.loading && cards.isEmpty;
   bool get hasUnreadNotifications => unreadNotifications > 0;
@@ -107,6 +113,9 @@ class HomeState extends Equatable {
     String? savingTradeId,
     bool clearSavingTradeId = false,
     bool? isNewUser,
+    String? tradeWsToastMessage,
+    int? tradeWsToastNonce,
+    bool clearTradeWsToast = false,
   }) {
     return HomeState(
       status: status ?? this.status,
@@ -138,6 +147,10 @@ class HomeState extends Equatable {
           ? null
           : (savingTradeId ?? this.savingTradeId),
       isNewUser: isNewUser ?? this.isNewUser,
+      tradeWsToastMessage: clearTradeWsToast
+          ? null
+          : (tradeWsToastMessage ?? this.tradeWsToastMessage),
+      tradeWsToastNonce: tradeWsToastNonce ?? this.tradeWsToastNonce,
     );
   }
 
@@ -166,5 +179,7 @@ class HomeState extends Equatable {
         saveTradeError,
         savingTradeId,
         isNewUser,
+        tradeWsToastMessage,
+        tradeWsToastNonce,
       ];
 }

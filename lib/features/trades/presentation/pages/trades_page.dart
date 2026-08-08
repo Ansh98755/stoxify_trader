@@ -9,6 +9,7 @@ import '../../../../core/constants/asset_constants.dart';
 import '../../../../core/constants/color_constants.dart';
 import '../../../../core/constants/text_style_constants.dart';
 import '../../../../core/network/websocket_service.dart';
+import '../../../../core/network/ws_trade_event.dart';
 import '../../../../core/services/live_prices_service.dart';
 import '../../../../core/shimmer/shimmer_widgets.dart';
 import '../../../../core/utils/app_size.dart';
@@ -17,6 +18,7 @@ import '../../../../core/widgets/app_screen_background.dart';
 import '../../../../core/widgets/common_app_notification_bar.dart';
 import '../../../../core/widgets/common_trading_card.dart';
 import '../../../../core/widgets/main_tab_shell.dart';
+import '../../../home/data/ws_trade_merge.dart';
 import '../../../home/domain/entities/home_trade.dart';
 import '../../../home/domain/repositories/home_repository.dart';
 import '../../../home/presentation/bloc/home_bloc.dart';
@@ -38,6 +40,9 @@ class _TradesPageState extends State<TradesPage> {
   final WebSocketService _webSocket = GetIt.instance<WebSocketService>();
   final ScrollController _scrollController = ScrollController();
   StreamSubscription<Map<String, double>>? _pricesSubscription;
+  StreamSubscription<WsTradeEvent>? _tradeWsSubscription;
+  StreamSubscription<Map<String, dynamic>>? _notifSubscription;
+  StreamSubscription<void>? _wsReconnectSubscription;
 
   TradesStatusTab _statusTab = TradesStatusTab.active;
   List<HomeTrade> _activeTrades = const <HomeTrade>[];
@@ -64,12 +69,21 @@ class _TradesPageState extends State<TradesPage> {
     _livePrices.start();
     unawaited(_webSocket.connect());
     _pricesSubscription = _livePrices.pricesStream.listen(_applyLivePrices);
+    _tradeWsSubscription = _webSocket.tradeEvents.listen(_onWsTradeEvent);
+    _notifSubscription =
+        _webSocket.notificationUpdates.listen(_onTradeNotification);
+    _wsReconnectSubscription = _webSocket.reconnected.listen((_) {
+      if (mounted) unawaited(_loadInitial());
+    });
     _loadInitial();
   }
 
   @override
   void dispose() {
     _pricesSubscription?.cancel();
+    _tradeWsSubscription?.cancel();
+    _notifSubscription?.cancel();
+    _wsReconnectSubscription?.cancel();
     _scrollController
       ..removeListener(_onScroll)
       ..dispose();
@@ -255,6 +269,70 @@ class _TradesPageState extends State<TradesPage> {
     setState(() => _activeTrades = updated);
   }
 
+  void _onTradeNotification(Map<String, dynamic> data) {
+    final type = (data['type'] as String?)?.toUpperCase() ?? '';
+    if (type == 'TRADE_MODIFIED') {
+      final id = WsTradeEvent.resolveTradeId(data);
+      if (id != null) unawaited(_refreshTradeById(id));
+      return;
+    }
+    if (type.startsWith('TRADE_')) {
+      unawaited(_loadInitial());
+    }
+  }
+
+  void _onWsTradeEvent(WsTradeEvent event) {
+    if (!mounted) return;
+    final result = WsTradeMerge.applyToActiveClosed(
+      active: _activeTrades,
+      closed: _closedTrades,
+      kind: event.kind,
+      payload: event.payload,
+    );
+    if (result.needsRefetch && event.tradeId != null) {
+      unawaited(_refreshTradeById(event.tradeId!));
+      return;
+    }
+    setState(() {
+      _activeTrades = _mergeLivePrices(result.active, _livePrices.current);
+      _closedTrades = result.closed;
+      _trackLiveSymbols(_activeTrades);
+    });
+  }
+
+  Future<void> _refreshTradeById(String tradeId) async {
+    try {
+      final fresh = await _repository.fetchTrade(tradeId);
+      if (!mounted) return;
+      setState(() {
+        _activeTrades = _mergeLivePrices(
+          _upsertById(_activeTrades, fresh, tradeId),
+          _livePrices.current,
+        );
+        _closedTrades = _upsertById(_closedTrades, fresh, tradeId);
+        _trackLiveSymbols(_activeTrades);
+      });
+    } catch (_) {
+      if (mounted) await _loadInitial();
+    }
+  }
+
+  List<HomeTrade> _upsertById(
+    List<HomeTrade> list,
+    HomeTrade fresh,
+    String requestedId,
+  ) {
+    final next = List<HomeTrade>.from(list);
+    final index = next.indexWhere(
+      (t) => t.id == fresh.id || t.id == requestedId,
+    );
+    if (index >= 0) {
+      next[index] = fresh;
+      return next;
+    }
+    return <HomeTrade>[fresh, ...next];
+  }
+
   List<HomeTrade> _mergeLivePrices(
     List<HomeTrade> trades,
     Map<String, double> prices,
@@ -376,7 +454,7 @@ class _TradesPageState extends State<TradesPage> {
                   crossAxisSpacing: 12,
                   mainAxisExtent:
                       ResponsiveLayout.cardGridColumns(context) >= 3
-                          ? 230
+                          ? (_statusTab == TradesStatusTab.closed ? 180 : 235)
                           : 300,
                 ),
                 delegate: SliverChildBuilderDelegate(

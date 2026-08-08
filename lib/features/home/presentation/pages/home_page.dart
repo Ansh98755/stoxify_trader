@@ -213,9 +213,25 @@ class _HomeViewState extends State<_HomeView> {
         child: BlocListener<HomeBloc, HomeState>(
         listenWhen: (prev, curr) =>
             prev.saveTradeSuccess != curr.saveTradeSuccess ||
-            prev.saveTradeError != curr.saveTradeError,
+            prev.saveTradeError != curr.saveTradeError ||
+            prev.tradeWsToastNonce != curr.tradeWsToastNonce,
         listener: (context, state) async {
           if (_flushbarVisible) return;
+
+          if (state.tradeWsToastMessage != null &&
+              state.tradeWsToastMessage!.isNotEmpty) {
+            _flushbarVisible = true;
+            await CommonAppNotificationBar.success(
+              context: context,
+              title: 'Trade updated',
+              message: state.tradeWsToastMessage!,
+            );
+            _flushbarVisible = false;
+            if (context.mounted) {
+              context.read<HomeBloc>().add(const HomeClearTradeWsFeedback());
+            }
+            return;
+          }
 
           if (state.saveTradeSuccess != null) {
             _flushbarVisible = true;
@@ -224,7 +240,6 @@ class _HomeViewState extends State<_HomeView> {
                 context: context,
                 title: 'Trade saved',
                 message: 'Added to your saved trades.',
-                duration: const Duration(seconds: 2),
               );
             } else {
               await CommonAppNotificationBar.error(
@@ -469,7 +484,7 @@ class _HomeViewState extends State<_HomeView> {
                                                   crossAxisCount: columns,
                                                   mainAxisSpacing: 12,
                                                   crossAxisSpacing: 12,
-                                                  mainAxisExtent: 230,
+                                                  mainAxisExtent: 235,
                                                 ),
                                                 // Two rows × 3 cards
                                                 itemCount: columns * 2,
@@ -912,13 +927,17 @@ class _HomeTradeGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final count = cards.length + (isLoadingMore ? 1 : 0);
+    final allClosed =
+        cards.isNotEmpty && cards.every((card) => !card.isLive);
     return SliverGrid(
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: columns,
         mainAxisSpacing: 12,
         crossAxisSpacing: 12,
-        // Fit the existing card content without trailing empty space.
-        mainAxisExtent: columns >= 3 ? 230 : 300,
+        // Closed cards omit the live timeline, so they need less height.
+        mainAxisExtent: columns >= 3
+            ? (allClosed ? 180 : 235)
+            : 300,
       ),
       delegate: SliverChildBuilderDelegate(
         (BuildContext context, int index) {

@@ -18,28 +18,45 @@ class DiscoverUiMapper {
     return '$trimmed%';
   }
 
+  static String formatAvgPnlLabel(double avgPnlPercent) {
+    final sign = avgPnlPercent >= 0 ? '+' : '';
+    if (avgPnlPercent == avgPnlPercent.roundToDouble()) {
+      return '$sign${avgPnlPercent.toInt()}%';
+    }
+    final trimmed = avgPnlPercent
+        .toStringAsFixed(2)
+        .replaceFirst(RegExp(r'0+$'), '')
+        .replaceFirst(RegExp(r'\.$'), '');
+    return '$sign$trimmed%';
+  }
+
+  static const String notAvailable = 'N/A';
+
   static DiscoverAnalystData toAnalystData(DiscoverAnalystModel model) {
     return DiscoverAnalystData(
       userId: model.userId,
       name: model.name,
       initials: _getInitials(model.name),
       sebi: model.sebiLicenseNumber,
-      subtitle: _registrationTypeLabel(model.registrationType),
+      subtitle: formatRegistrationTypeLabel(model.registrationType),
       profilePicUrl: model.profilePicUrl,
       winRate: formatWinRateLabel(model.winRate),
       avgPnl: formatAvgPnlLabel(model.avgPnlPercent),
       experienceYears: '${model.experienceYears}',
+      totalTrades: _formatOptionalCount(model.totalTrades),
+      winTrades: _formatOptionalCount(model.winningTrades),
+      avgReturn: model.avgReturnPercent == null
+          ? notAvailable
+          : formatAvgPnlLabel(model.avgReturnPercent!),
       tags: model.segmentsCovered.take(3).toList(),
       avatarStart: ColorConstants.brandBlueLight,
       avatarEnd: ColorConstants.brandBlue,
     );
   }
 
-  /// Keeps Avg P&L readable on narrow metric columns (e.g. `+0.69%`).
-  static String formatAvgPnlLabel(double avgPnlPercent) {
-    final sign = avgPnlPercent >= 0 ? '+' : '';
-    final value = avgPnlPercent.toStringAsFixed(2);
-    return '$sign$value%';
+  static String _formatOptionalCount(int? value) {
+    if (value == null) return notAvailable;
+    return value.toString();
   }
 
   static CommonBatchData toBatchData(DiscoverBatchModel model) {
@@ -76,12 +93,12 @@ class DiscoverUiMapper {
     return name.substring(0, 1).toUpperCase();
   }
 
-  static String _registrationTypeLabel(String? value) {
+  static String formatRegistrationTypeLabel(String? value) {
     if (value == null || value.isEmpty) return '';
     return value
         .split('_')
         .where((part) => part.isNotEmpty)
-        .map((part) => '${part[0].toUpperCase()}${part.substring(1)}')
+        .map((part) => '${part[0].toUpperCase()}${part.substring(1).toLowerCase()}')
         .join(' ');
   }
 

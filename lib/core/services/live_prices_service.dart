@@ -3,7 +3,7 @@ import 'dart:async';
 import '../../features/home/data/datasources/market_data_remote_data_source.dart';
 import '../network/websocket_service.dart';
 
-const _kPollInterval = Duration(seconds: 15);
+const _kPollInterval = Duration(seconds: 5);
 
 /// Session-wide LTP cache merged from WebSocket updates and HTTP polling.
 class LivePricesService {
@@ -36,9 +36,9 @@ class LivePricesService {
       if (updatedPrices.isEmpty) return;
       _current.addAll(updatedPrices);
       _controller.add(Map<String, double>.from(_current));
-      _startOrUpdateTimer();
     });
 
+    // Always poll as a backup — WS can be "open" without regular price pushes.
     _startOrUpdateTimer();
   }
 
@@ -47,7 +47,10 @@ class LivePricesService {
     final fresh = symbols.where((s) => s.isNotEmpty).toSet();
     final changed =
         fresh.length != _symbols.length || !fresh.containsAll(_symbols);
-    if (!changed) return;
+    if (!changed) {
+      if (_started && _symbols.isNotEmpty) _poll();
+      return;
+    }
 
     _symbols
       ..clear()
@@ -70,29 +73,19 @@ class LivePricesService {
 
   void _startOrUpdateTimer() {
     _timer?.cancel();
-    if (!_webSocket.isConnected) {
-      _timer = Timer.periodic(_kPollInterval, (_) => _poll());
-    } else {
-      _timer = null;
-    }
+    if (_symbols.isEmpty) return;
+    _timer = Timer.periodic(_kPollInterval, (_) => _poll());
   }
 
   Future<void> _poll() async {
-    if (_symbols.isEmpty || _webSocket.isConnected) return;
+    if (_symbols.isEmpty) return;
 
     final results = await _marketData.prices(_symbols.toList());
     if (results.isEmpty) return;
 
-    var changed = false;
-    results.forEach((k, v) {
-      if (_current[k] != v) {
-        _current[k] = v;
-        changed = true;
-      }
-    });
-    if (changed) {
-      _controller.add(Map<String, double>.from(_current));
-    }
+    _current.addAll(results);
+    // Always push — Home must refresh LTP as soon as a tick arrives.
+    _controller.add(Map<String, double>.from(_current));
   }
 
   void dispose() {

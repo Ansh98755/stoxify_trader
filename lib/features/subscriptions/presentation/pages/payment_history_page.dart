@@ -161,7 +161,7 @@ class _TransactionCard extends StatelessWidget {
               Text(amount, style: TextStyleConstants.bodyMedium.copyWith(fontWeight: FontWeight.w700)),
               SizedBox(height: AppSize.h(context, 3)),
               Text(
-                transaction.status.toUpperCase(),
+                _statusLabel(transaction.status),
                 style: TextStyleConstants.caption.copyWith(
                   color: statusColor,
                   fontWeight: FontWeight.w700,
@@ -172,6 +172,16 @@ class _TransactionCard extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  String _statusLabel(String status) {
+    switch (status.trim().toUpperCase()) {
+      case 'CAPTURED':
+      case 'CREATED':
+        return 'Subscribed';
+      default:
+        return status.toUpperCase();
+    }
   }
 }
 

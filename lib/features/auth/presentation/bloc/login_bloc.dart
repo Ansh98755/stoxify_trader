@@ -73,9 +73,10 @@ class LoginBloc extends Bloc<LoginEvent, LoginState> {
         phoneE164: state.e164Phone,
         otp: event.otp,
       );
+      // Keep the full-screen loader up until navigation replaces this page.
       emit(
         state.copyWith(
-          isSubmitting: false,
+          isSubmitting: true,
           isOtpEntryActive: false,
           verifySuccessCount: state.verifySuccessCount + 1,
           isNewUser: user.isNewUser,

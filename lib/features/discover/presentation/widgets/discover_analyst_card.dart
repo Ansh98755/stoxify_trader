@@ -1,5 +1,5 @@
-﻿import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:stoxify/core/widgets/tapered_divider.dart';
 
 import '../../../../core/constants/asset_constants.dart';
 import '../../../../core/constants/color_constants.dart';
@@ -18,6 +18,9 @@ class DiscoverAnalystData {
     required this.winRate,
     required this.avgPnl,
     required this.experienceYears,
+    required this.totalTrades,
+    required this.winTrades,
+    required this.avgReturn,
     required this.tags,
     required this.avatarStart,
     required this.avatarEnd,
@@ -33,12 +36,14 @@ class DiscoverAnalystData {
   final String winRate;
   final String avgPnl;
   final String experienceYears;
+  final String totalTrades;
+  final String winTrades;
+  final String avgReturn;
   final List<String> tags;
   final Color avatarStart;
   final Color avatarEnd;
 }
 
-/// Original hanging-tag analyst card (tags sit on the top edge of the white body).
 class DiscoverAnalystCard extends StatelessWidget {
   const DiscoverAnalystCard({
     required this.data,
@@ -52,11 +57,11 @@ class DiscoverAnalystCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool pnlNegative = data.avgPnl.startsWith('-');
+    final bool avgReturnNegative = data.avgReturn.startsWith('-');
+    final bool avgReturnMissing = data.avgReturn == 'N/A';
     final radius = AppSize.r(context, 16);
     final hasTags = data.tags.isNotEmpty;
-    // Always reserve the hanging-tag strip so grid cards stay level even
-    // when some analysts have no segments.
-    final wrapperTop = AppSize.h(context, 14);
+    final wrapperTop = hasTags ? AppSize.h(context, 14) : 0.0;
 
     return Stack(
       clipBehavior: Clip.none,
@@ -95,7 +100,6 @@ class DiscoverAnalystCard extends StatelessWidget {
                     bottom: 14,
                   ),
                   child: Column(
-                    mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
                       Row(
@@ -114,18 +118,15 @@ class DiscoverAnalystCard extends StatelessWidget {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: <Widget>[
                                 Row(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.start,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: <Widget>[
                                     Expanded(
                                       child: Text(
                                         data.name,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
                                         style: TextStyleConstants.cardTitle
                                             .copyWith(
                                           fontSize: AppSize.sp(context, 16),
-                                          height: 1.2,
+                                          height: 1,
                                           color: ColorConstants.ink,
                                         ),
                                       ),
@@ -136,10 +137,9 @@ class DiscoverAnalystCard extends StatelessWidget {
                                   ],
                                 ),
                                 if (data.subtitle.isNotEmpty) ...<Widget>[
+                                  // SizedBox(height: AppSize.h(context, 5)),
                                   Text(
                                     data.subtitle,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
                                     style:
                                         TextStyleConstants.bodyMedium.copyWith(
                                       fontSize: AppSize.sp(context, 12.5),
@@ -152,9 +152,8 @@ class DiscoverAnalystCard extends StatelessWidget {
                                   SizedBox(height: AppSize.h(context, 4)),
                                   Text(
                                     data.sebi!,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyleConstants.caption.copyWith(
+                                    style:
+                                        TextStyleConstants.caption.copyWith(
                                       fontSize: AppSize.sp(context, 11),
                                       fontWeight: FontWeight.w600,
                                       color: ColorConstants.brandBlue,
@@ -176,34 +175,94 @@ class DiscoverAnalystCard extends StatelessWidget {
                           ),
                         ],
                       ),
-                      SizedBox(height: AppSize.h(context, 14)),
-                      Row(
-                        children: <Widget>[
-                          _MetricCell(
-                            value: data.winRate,
-                            label: 'Win rate',
-                            valueColor: ColorConstants.green,
-                            iconAsset: AssetConstants.winRateAnalystCard,
+                      SizedBox(height: AppSize.h(context, 8)),
+                      Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: ColorConstants.soft,
+                            width: 0.5
+                          )
+                        ),
+                        // color: ColorConstants.soft,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical:8),
+                          child: Column(
+                                                children: [
+                                                  // Center(
+                                                  //   child: Text(
+                                                  //     "Performance Metrix",
+                                                  //     style: TextStyleConstants.bodySmall.copyWith(color: ColorConstants.ink,fontSize: 14),
+                                                  //   ),
+                                                  // ),
+                                                  // SizedBox(height: AppSize.h(context, 6)),
+
+                          Row(
+                          children: <Widget>[
+                            _MetricCell(
+                              value: data.winRate,
+                              label: 'Win rate',
+                              valueColor: ColorConstants.green,
+                              iconAsset: AssetConstants.winRateAnalystCard,
+                            ),
+                            _MetricDivider(),
+                            _MetricCell(
+                              value: data.avgPnl,
+                              label: 'Avg P&L',
+                              valueColor: pnlNegative
+                                  ? ColorConstants.red
+                                  : ColorConstants.green,
+                              iconAsset: AssetConstants.avgPlAnalystCard,
+                            ),
+                            _MetricDivider(),
+                            _MetricCell(
+                              value: data.experienceYears,
+                              label: 'Yrs experience',
+                              valueColor: ColorConstants.ink,
+                              iconAsset:
+                                  AssetConstants.subscribersAnalystCard,
+                            ),
+                          ],
+                                                ),
+                                                SizedBox(height: AppSize.h(context, 6)),
+                                                TaperedHorizontalDivider(),
+                                                SizedBox(height: AppSize.h(context, 6)),
+                                                Row(
+                          children: <Widget>[
+                            _MetricCell(
+                              value: data.totalTrades,
+                              label: 'Total trades',
+                              valueColor: data.totalTrades == 'N/A'
+                                  ? ColorConstants.soft
+                                  : ColorConstants.ink,
+                              icon: Icons.candlestick_chart_outlined,
+                            ),
+                            _MetricDivider(),
+                            _MetricCell(
+                              value: data.winTrades,
+                              label: 'Win trades',
+                              valueColor: data.winTrades == 'N/A'
+                                  ? ColorConstants.soft
+                                  : ColorConstants.green,
+                              icon: Icons.emoji_events_outlined,
+                            ),
+                            _MetricDivider(),
+                            _MetricCell(
+                              value: data.avgReturn,
+                              label: 'Avg return',
+                              valueColor: avgReturnMissing
+                                  ? ColorConstants.soft
+                                  : avgReturnNegative
+                                      ? ColorConstants.red
+                                      : ColorConstants.green,
+                              icon: Icons.trending_up_rounded,
+                            ),
+                          ],
+                                                ),
+                                                ],
                           ),
-                          _MetricDivider(),
-                          _MetricCell(
-                            value: data.avgPnl,
-                            label: 'Avg P&L',
-                            valueColor: pnlNegative
-                                ? ColorConstants.red
-                                : ColorConstants.green,
-                            iconAsset: AssetConstants.avgPlAnalystCard,
-                          ),
-                          _MetricDivider(),
-                          _MetricCell(
-                            value: data.experienceYears,
-                            label: 'Yrs experience',
-                            valueColor: ColorConstants.ink,
-                            iconAsset:
-                                AssetConstants.subscribersAnalystCard,
-                          ),
-                        ],
-                      ),
+                        ),
+                      )
                     ],
                   ),
                 ),
@@ -260,9 +319,6 @@ class _Avatar extends StatelessWidget {
               ? Image.network(
                   imageUrl!,
                   fit: BoxFit.cover,
-                  webHtmlElementStrategy: kIsWeb
-                      ? WebHtmlElementStrategy.fallback
-                      : WebHtmlElementStrategy.never,
                   errorBuilder: (_, _, _) => _AvatarInitials(
                     initials: initials,
                     size: size,
@@ -329,34 +385,44 @@ class _MetricCell extends StatelessWidget {
     required this.value,
     required this.label,
     required this.valueColor,
-    required this.iconAsset,
-  });
+    this.iconAsset,
+    this.icon,
+  }) : assert(
+          iconAsset != null || icon != null,
+          'Provide either iconAsset or icon',
+        );
 
   final String value;
   final String label;
   final Color valueColor;
-  final String iconAsset;
+  final String? iconAsset;
+  final IconData? icon;
 
   @override
   Widget build(BuildContext context) {
+    final iconSize = AppSize.r(context, 16);
     return Expanded(
       child: Column(
-        mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          Image.asset(
-            iconAsset,
-            width: AppSize.r(context, 16),
-            height: AppSize.r(context, 16),
-            fit: BoxFit.contain,
-            color: valueColor,
-            colorBlendMode: BlendMode.srcIn,
-            filterQuality: FilterQuality.high,
-          ),
+          if (iconAsset != null)
+            Image.asset(
+              iconAsset!,
+              width: iconSize,
+              height: iconSize,
+              fit: BoxFit.contain,
+              color: valueColor,
+              colorBlendMode: BlendMode.srcIn,
+              filterQuality: FilterQuality.high,
+            )
+          else
+            Icon(
+              icon,
+              size: iconSize,
+              color: valueColor,
+            ),
           SizedBox(height: AppSize.h(context, 4)),
           Text(
             value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
             style: TextStyleConstants.numeric.copyWith(
               fontSize: AppSize.sp(context, 15),
               fontWeight: FontWeight.w700,
@@ -367,8 +433,6 @@ class _MetricCell extends StatelessWidget {
           Text(
             label,
             textAlign: TextAlign.center,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
             style: TextStyleConstants.caption.copyWith(
               fontSize: AppSize.sp(context, 10),
               fontWeight: FontWeight.w600,

@@ -8,6 +8,7 @@ import '../../features/auth/domain/repositories/auth_repository.dart';
 import '../storage/secure_storage.dart';
 import 'api_client.dart';
 import 'live_socket.dart';
+import 'ws_trade_event.dart';
 
 /// Keeps a single live-updates socket open for the app's lifetime.
 ///
@@ -31,6 +32,7 @@ class WebSocketService with WidgetsBindingObserver {
   bool _isDisposed = false;
   bool _connecting = false;
   int _reconnectAttempts = 0;
+  bool _hadSuccessfulConnection = false;
 
   static const _baseReconnectInterval = Duration(seconds: 3);
   static const _maxReconnectInterval = Duration(seconds: 30);
@@ -38,10 +40,17 @@ class WebSocketService with WidgetsBindingObserver {
   final _priceController = StreamController<Map<String, double>>.broadcast();
   final _notificationController =
       StreamController<Map<String, dynamic>>.broadcast();
+  final _tradeEventController =
+      StreamController<WsTradeEvent>.broadcast();
+  final _reconnectedController = StreamController<void>.broadcast();
 
   Stream<Map<String, double>> get priceUpdates => _priceController.stream;
   Stream<Map<String, dynamic>> get notificationUpdates =>
       _notificationController.stream;
+  Stream<WsTradeEvent> get tradeEvents => _tradeEventController.stream;
+
+  /// Fires after the socket opens again following a prior successful session.
+  Stream<void> get reconnected => _reconnectedController.stream;
 
   bool get isConnected => _socket != null && _socket!.isOpen;
 
@@ -80,10 +89,14 @@ class WebSocketService with WidgetsBindingObserver {
         onError: _onError,
         cancelOnError: true,
       );
+
+      if (_hadSuccessfulConnection) {
+        _reconnectedController.add(null);
+      }
+      _hadSuccessfulConnection = true;
     } catch (e) {
       debugPrint('[WS] Connection error: $e');
       _connecting = false;
-      // Match prior mobile behavior: drop handle and reconnect (do not force-close twice).
       unawaited(_sub?.cancel());
       _sub = null;
       _socket = null;
@@ -91,18 +104,31 @@ class WebSocketService with WidgetsBindingObserver {
     }
   }
 
+  void _emitTradeEvent(WsTradeEvent tradeEvent) {
+    debugPrint(
+      '[WS] Trade event: ${tradeEvent.kind.name} id=${tradeEvent.tradeId ?? ''}',
+    );
+    _tradeEventController.add(tradeEvent);
+  }
+
   void _onMessage(dynamic rawMessage) {
     try {
       final msg = jsonDecode(rawMessage.toString());
-      final type = msg['type'];
+      if (msg is! Map) return;
+      final map = msg.cast<String, dynamic>();
+      final type = map['type'] ?? map['event_type'];
 
       if (type == 'price_update') {
-        final pricesRaw = msg['prices'];
+        final pricesRaw = map['prices'];
         if (pricesRaw is Map) {
           final prices = <String, double>{};
           pricesRaw.forEach((k, v) {
-            if (k is String && v is num) {
+            if (k is! String) return;
+            if (v is num) {
               prices[k] = v.toDouble();
+            } else if (v is String) {
+              final parsed = double.tryParse(v);
+              if (parsed != null) prices[k] = parsed;
             }
           });
           if (prices.isNotEmpty) {
@@ -110,9 +136,20 @@ class WebSocketService with WidgetsBindingObserver {
           }
         }
       } else if (type == 'NOTIFICATION_NEW') {
-        final data = msg['data'];
+        final data = map['data'];
         if (data is Map) {
-          _notificationController.add(data.cast<String, dynamic>());
+          final notification = data.cast<String, dynamic>();
+          _notificationController.add(notification);
+          final tradeFromNotification = WsTradeEvent.tryParse(notification) ??
+              WsTradeEvent.tryParse(map);
+          if (tradeFromNotification != null) {
+            _emitTradeEvent(tradeFromNotification);
+          }
+        }
+      } else {
+        final tradeEvent = WsTradeEvent.tryParse(map);
+        if (tradeEvent != null) {
+          _emitTradeEvent(tradeEvent);
         }
       }
     } catch (e) {
@@ -175,6 +212,7 @@ class WebSocketService with WidgetsBindingObserver {
   }
 
   void disconnect() {
+    _hadSuccessfulConnection = false;
     final socket = _socket;
     _cleanup();
     unawaited(socket?.close());
@@ -187,5 +225,7 @@ class WebSocketService with WidgetsBindingObserver {
     disconnect();
     _priceController.close();
     _notificationController.close();
+    _tradeEventController.close();
+    _reconnectedController.close();
   }
 }

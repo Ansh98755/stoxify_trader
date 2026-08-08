@@ -9,7 +9,7 @@ class HomeSearchRow extends StatelessWidget {
   const HomeSearchRow({
     super.key,
     this.controller,
-    this.hintText = 'Search Trades',
+    this.hintText = 'Search trades or analyst',
     this.onChanged,
     this.onFilterTap,
     this.hasActiveFilters = false,

@@ -44,9 +44,7 @@ class _SplashPageState extends State<SplashPage> {
         if (!mounted) return;
         context.go(AppRoutingName.home);
         // After home route is on the tree, consume any cold-start push deep link.
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          unawaited(NotificationNavigator.flushPending());
-        });
+        NotificationNavigator.flushPendingAfterFrame();
         return;
       } catch (_) {
         await storage.delete(SecureStorage.accessToken);

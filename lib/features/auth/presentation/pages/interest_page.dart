@@ -7,6 +7,8 @@ import '../../../../app/routes/app_routing_name.dart';
 import '../../../../core/constants/color_constants.dart';
 import '../../../../core/constants/text_style_constants.dart';
 import '../../../../core/di/injection.dart';
+import '../../../../core/notifications/notification_navigator.dart';
+import '../../../../core/storage/secure_storage.dart';
 import '../../../../core/utils/app_size.dart';
 import '../../../../core/widgets/common_button_widget.dart';
 import '../../../../core/widgets/app_loader.dart';
@@ -78,7 +80,17 @@ class _InterestPageState extends State<InterestPage> {
   @override
   void initState() {
     super.initState();
-    unawaited(_loadExistingInterests());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (context.canPop()) {
+        unawaited(_loadExistingInterests());
+      } else {
+        setState(() {
+          if (_selected.isEmpty) _selected.add('Equity');
+          _isLoading = false;
+        });
+      }
+    });
   }
 
   Future<void> _loadExistingInterests() async {
@@ -117,6 +129,7 @@ class _InterestPageState extends State<InterestPage> {
 
     try {
       await getIt<AuthRepository>().updateInterests(mapped);
+      await getIt<SecureStorage>().delete(SecureStorage.isNewUser);
     } catch (_) {
       // Best-effort: still continue so the user isn't stuck.
     }
@@ -127,6 +140,7 @@ class _InterestPageState extends State<InterestPage> {
       context.pop();
     } else {
       context.go(AppRoutingName.home);
+      NotificationNavigator.flushPendingAfterFrame();
     }
   }
 

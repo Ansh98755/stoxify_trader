@@ -11,7 +11,9 @@ class DiscoverAnalystModel {
     this.winRate = 0,
     this.avgPnlPercent = 0,
     this.totalSubscribers = 0,
-    this.totalTrades = 0,
+    this.totalTrades,
+    this.winningTrades,
+    this.avgReturnPercent,
     this.experienceYears = 0,
   });
 
@@ -26,7 +28,12 @@ class DiscoverAnalystModel {
   final double winRate;
   final double avgPnlPercent;
   final int totalSubscribers;
-  final int totalTrades;
+  /// Null when discover API omits `performance.total_trades`.
+  final int? totalTrades;
+  /// Null when discover API omits `performance.winning_trades`.
+  final int? winningTrades;
+  /// Null when discover API omits avg-return fields.
+  final double? avgReturnPercent;
   final int experienceYears;
 
   factory DiscoverAnalystModel.fromJson(Map<String, dynamic> json) {
@@ -34,12 +41,16 @@ class DiscoverAnalystModel {
         (json['performance'] as Map?)?.cast<String, dynamic>() ?? const {};
     final name = (json['name'] as String?)?.trim() ?? '';
     final companyName = (json['company_name'] as String?)?.trim() ?? '';
-    final totalTrades = (perf['total_trades'] as num?)?.toInt() ?? 0;
-    final winningTrades = (perf['winning_trades'] as num?)?.toInt() ?? 0;
+    final totalTrades = _optionalInt(perf, 'total_trades');
+    final winningTrades = _optionalInt(perf, 'winning_trades');
     final winRate =
         (json['win_rate'] as num?)?.toDouble() ??
         (perf['win_rate'] as num?)?.toDouble() ??
-        (totalTrades > 0 ? winningTrades / totalTrades : 0);
+        ((totalTrades != null &&
+                winningTrades != null &&
+                totalTrades > 0)
+            ? winningTrades / totalTrades
+            : 0);
     return DiscoverAnalystModel(
       userId: json['user_id'] as String? ?? '',
       name: name.isNotEmpty ? name : companyName,
@@ -53,6 +64,12 @@ class DiscoverAnalystModel {
       avgPnlPercent: (perf['average_pnl_percent'] as num?)?.toDouble() ?? 0,
       totalSubscribers: (perf['total_subscribers'] as num?)?.toInt() ?? 0,
       totalTrades: totalTrades,
+      winningTrades: winningTrades,
+      avgReturnPercent: _optionalDouble(perf, 'average_return') ??
+          _optionalDouble(perf, 'avg_return') ??
+          _optionalDouble(perf, 'average_return_percent') ??
+          _optionalDouble(json, 'average_return') ??
+          _optionalDouble(json, 'avg_return'),
       experienceYears: (json['experience_years'] as num?)?.toInt() ?? 0,
     );
   }
@@ -63,5 +80,19 @@ class DiscoverAnalystModel {
   static String? _nonEmptyString(dynamic value) {
     final text = value is String ? value.trim() : '';
     return text.isEmpty ? null : text;
+  }
+
+  static int? _optionalInt(Map<String, dynamic> map, String key) {
+    if (!map.containsKey(key) || map[key] == null) return null;
+    final value = map[key];
+    if (value is num) return value.toInt();
+    return int.tryParse(value.toString());
+  }
+
+  static double? _optionalDouble(Map<String, dynamic> map, String key) {
+    if (!map.containsKey(key) || map[key] == null) return null;
+    final value = map[key];
+    if (value is num) return value.toDouble();
+    return double.tryParse(value.toString());
   }
 }

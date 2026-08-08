@@ -10,12 +10,14 @@ enum AppNotificationType { success, error, warning, info }
 final class CommonAppNotificationBar {
   CommonAppNotificationBar._();
 
+  static const Duration defaultDuration = Duration(seconds: 4);
+
   static Future<void> show({
     required BuildContext context,
     required String title,
     required String message,
     AppNotificationType type = AppNotificationType.info,
-    Duration duration = const Duration(milliseconds: 900),
+    Duration duration = defaultDuration,
   }) async {
     final visual = _NotificationVisual.fromType(type);
 
@@ -69,7 +71,7 @@ final class CommonAppNotificationBar {
         ),
       ),
       duration: duration,
-      animationDuration: const Duration(milliseconds: 190),
+      animationDuration: const Duration(milliseconds: 220),
       forwardAnimationCurve: Curves.easeOutBack,
       reverseAnimationCurve: Curves.easeInCubic,
       isDismissible: true,
@@ -81,7 +83,7 @@ final class CommonAppNotificationBar {
     required BuildContext context,
     required String title,
     required String message,
-    Duration duration = const Duration(milliseconds: 900),
+    Duration duration = defaultDuration,
   }) {
     return show(
       context: context,
@@ -96,12 +98,14 @@ final class CommonAppNotificationBar {
     required BuildContext context,
     required String title,
     required String message,
+    Duration duration = defaultDuration,
   }) {
     return show(
       context: context,
       title: title,
       message: message,
       type: AppNotificationType.error,
+      duration: duration,
     );
   }
 
@@ -109,12 +113,14 @@ final class CommonAppNotificationBar {
     required BuildContext context,
     required String title,
     required String message,
+    Duration duration = defaultDuration,
   }) {
     return show(
       context: context,
       title: title,
       message: message,
       type: AppNotificationType.warning,
+      duration: duration,
     );
   }
 
@@ -122,12 +128,14 @@ final class CommonAppNotificationBar {
     required BuildContext context,
     required String title,
     required String message,
+    Duration duration = defaultDuration,
   }) {
     return show(
       context: context,
       title: title,
       message: message,
       type: AppNotificationType.info,
+      duration: duration,
     );
   }
 }

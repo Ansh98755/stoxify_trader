@@ -4,9 +4,12 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/services/live_prices_service.dart';
 import '../../../../core/network/websocket_service.dart';
+import '../../../../core/network/ws_trade_event.dart';
 import '../../../../core/storage/secure_storage.dart';
+import '../../../auth/domain/entities/auth_user.dart';
 import '../../../auth/domain/repositories/auth_repository.dart';
 import '../../../notifications/domain/repositories/notifications_repository.dart';
+import '../../data/ws_trade_merge.dart';
 import '../../domain/entities/home_subscription.dart';
 import '../../../../../shared/models/trading_card_data.dart';
 import '../../data/models/trade_facets_model.dart';
@@ -43,6 +46,9 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     on<HomeTradeToggleSaved>(_onToggleSaved);
     on<HomeSavedTradeIdsUpdated>(_onSavedTradeIdsUpdated);
     on<HomeClearSaveFeedback>(_onClearSaveFeedback);
+    on<HomeWsTradeEventReceived>(_onWsTradeEvent);
+    on<HomeWsReconnected>(_onWsReconnected);
+    on<HomeClearTradeWsFeedback>(_onClearTradeWsFeedback);
     on<HomeLoggedOut>(_onLoggedOut);
   }
 
@@ -55,6 +61,8 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
 
   StreamSubscription<Map<String, double>>? _pricesSub;
   StreamSubscription<Map<String, dynamic>>? _notifSub;
+  StreamSubscription<WsTradeEvent>? _tradeWsSub;
+  StreamSubscription<void>? _wsReconnectSub;
 
   Future<void> resetForLogout() {
     final completer = Completer<void>();
@@ -78,9 +86,9 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       isNewUser: isNewUser,
     ));
     unawaited(_webSocket.connect());
-    await _loadInitial(emit, includeProfile: true, loadFacets: true);
     _livePrices.start();
     _bindLiveStreams();
+    await _loadInitial(emit, includeProfile: true, loadFacets: true);
   }
 
   Future<void> _onRefreshed(
@@ -91,8 +99,9 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     // Bust cached data so pull-to-refresh always hits the network.
     _repository.invalidateSubscriptions();
     unawaited(_webSocket.connect());
-    await _loadInitial(emit, includeProfile: false, loadFacets: true);
+    _livePrices.start();
     _bindLiveStreams();
+    await _loadInitial(emit, includeProfile: false, loadFacets: true);
   }
 
   void _bindLiveStreams() {
@@ -102,6 +111,12 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     _notifSub ??= _webSocket.notificationUpdates.listen((data) {
       if (!isClosed) add(HomeNotificationReceived(data));
     });
+    _tradeWsSub ??= _webSocket.tradeEvents.listen((event) {
+      if (!isClosed) add(HomeWsTradeEventReceived(event));
+    });
+    _wsReconnectSub ??= _webSocket.reconnected.listen((_) {
+      if (!isClosed) add(const HomeWsReconnected());
+    });
   }
 
   Future<void> _loadInitial(
@@ -110,37 +125,46 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     bool loadFacets = false,
   }) async {
     try {
-      final segment = joinFilterValues(state.filterSegments);
-      final category = joinFilterValues(state.filterCategories);
+      final feedFacets = resolveOrAwareFeedFacets(
+        segments: state.filterSegments,
+        categories: state.filterCategories,
+      );
       final status = resolveFeedStatus(state.filterStatuses);
       final feedFuture = _repository.fetchFeed(
         page: 1,
-        segment: segment,
-        category: category,
+        segment: feedFacets.segment,
+        category: feedFacets.category,
         status: status,
       );
       final subsFuture = _repository.fetchSubscriptions();
       final savedIdsFuture = _repository.fetchSavedTradeIds();
       final unreadCountFuture = _notificationsRepository.fetchUnreadCount();
-      final profileFuture =
-          includeProfile ? _authRepository.getMe() : null;
-      final facetsFuture = loadFacets || state.facets == null
-          ? _repository.fetchTradeFacets()
-          : null;
+      final Future<AuthUser?> profileFuture = includeProfile
+          ? _authRepository.getMe()
+          : Future<AuthUser?>.value(null);
+      final Future<TradeFacets?> facetsFuture =
+          (loadFacets || state.facets == null)
+              ? _repository
+                  .fetchTradeFacets()
+                  .then<TradeFacets?>((f) => f)
+                  .catchError((Object _) => state.facets)
+              : Future<TradeFacets?>.value(state.facets);
 
-      final feed = await feedFuture;
-      final subs = await subsFuture;
-      final savedIds = await savedIdsFuture;
-      final unreadCount = await unreadCountFuture;
-      final profile = profileFuture == null ? null : await profileFuture;
-      TradeFacets? facets = state.facets;
-      if (facetsFuture != null) {
-        try {
-          facets = await facetsFuture;
-        } catch (_) {
-          // Facets are optional — keep previously loaded options if any.
-        }
-      }
+      final settled = await Future.wait<Object?>(<Future<Object?>>[
+        feedFuture,
+        subsFuture,
+        savedIdsFuture,
+        unreadCountFuture,
+        profileFuture,
+        facetsFuture,
+      ]);
+
+      final feed = settled[0]! as HomeFeedPage;
+      final subs = settled[1]! as List<HomeSubscription>;
+      final savedIds = settled[2]! as Set<String>;
+      final unreadCount = settled[3]! as int;
+      final profile = settled[4] as AuthUser?;
+      final facets = settled[5] as TradeFacets?;
 
       var trades = _normalizeFeedTrades(feed.trades, state.filterStatuses);
       trades = _mergeLivePrices(trades, _livePrices.current);
@@ -192,10 +216,14 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     emit(state.copyWith(isLoadingMore: true));
     try {
       final nextPage = state.page + 1;
+      final feedFacets = resolveOrAwareFeedFacets(
+        segments: state.filterSegments,
+        categories: state.filterCategories,
+      );
       final feed = await _repository.fetchFeed(
         page: nextPage,
-        segment: joinFilterValues(state.filterSegments),
-        category: joinFilterValues(state.filterCategories),
+        segment: feedFacets.segment,
+        category: feedFacets.category,
         status: resolveFeedStatus(state.filterStatuses),
       );
       final incoming =
@@ -300,7 +328,8 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     HomeLivePricesUpdated event,
     Emitter<HomeState> emit,
   ) {
-    if (state.trades.isEmpty) return;
+    if (state.trades.isEmpty || event.prices.isEmpty) return;
+    // Always apply and emit — never skip because LTP matched the previous tick.
     final merged = _mergeLivePrices(state.trades, event.prices);
     emit(
       state.copyWith(
@@ -332,10 +361,131 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     } catch (_) {
       // Keep previous API-backed value; never invent an unread mark.
     }
-    final type = (event.payload['type'] as String?) ?? '';
+    final type = ((event.payload['type'] as String?) ?? '').toUpperCase();
+    if (type == 'TRADE_MODIFIED') {
+      final tradeId = WsTradeEvent.resolveTradeId(event.payload);
+      if (tradeId != null) {
+        await _refreshTradeInFeed(tradeId, emit);
+      } else {
+        await _loadInitial(emit, includeProfile: false);
+      }
+      return;
+    }
     if (type.startsWith('TRADE_')) {
       await _loadInitial(emit, includeProfile: false);
     }
+  }
+
+  Future<void> _refreshTradeInFeed(
+    String tradeId,
+    Emitter<HomeState> emit,
+  ) async {
+    try {
+      final fresh = await _repository.fetchTrade(tradeId);
+      if (isClosed) return;
+
+      var trades = List<HomeTrade>.from(state.trades);
+      final index = trades.indexWhere(
+        (t) => t.id == tradeId || t.id == fresh.id,
+      );
+      final withLtp =
+          _mergeLivePrices(<HomeTrade>[fresh], _livePrices.current).first;
+
+      if (index >= 0) {
+        trades[index] = withLtp;
+      } else {
+        trades = <HomeTrade>[withLtp, ...trades];
+      }
+
+      trades = _normalizeFeedTrades(trades, state.filterStatuses);
+      _trackSymbols(trades);
+
+      emit(
+        state.copyWith(
+          trades: trades,
+          cards: _applyLocalFilters(
+            trades,
+            query: state.query,
+            segments: state.filterSegments,
+            categories: state.filterCategories,
+            statuses: state.filterStatuses,
+            sort: state.sort,
+            savedIds: state.savedTradeIds,
+          ),
+          tradeWsToastMessage: 'Trade updated',
+          tradeWsToastNonce: state.tradeWsToastNonce + 1,
+        ),
+      );
+    } catch (_) {
+      if (!isClosed) {
+        await _loadInitial(emit, includeProfile: false);
+      }
+    }
+  }
+
+  void _onWsTradeEvent(
+    HomeWsTradeEventReceived event,
+    Emitter<HomeState> emit,
+  ) {
+    if (state.trades.isEmpty && event.event.kind != WsTradeEventKind.created) {
+      return;
+    }
+
+    final result = WsTradeMerge.applyEvent(
+      trades: state.trades,
+      kind: event.event.kind,
+      payload: event.event.payload,
+    );
+
+    var trades = _mergeLivePrices(result.trades, _livePrices.current);
+    trades = _normalizeFeedTrades(trades, state.filterStatuses);
+
+    if (event.event.kind == WsTradeEventKind.created) {
+      _trackSymbols(trades);
+    }
+
+    final toast = result.toast;
+    final showToast = toast != null &&
+        event.event.kind == WsTradeEventKind.modified;
+
+    emit(
+      state.copyWith(
+        trades: trades,
+        cards: _applyLocalFilters(
+          trades,
+          query: state.query,
+          segments: state.filterSegments,
+          categories: state.filterCategories,
+          statuses: state.filterStatuses,
+          sort: state.sort,
+          savedIds: state.savedTradeIds,
+        ),
+        tradeWsToastMessage: showToast ? toast : null,
+        tradeWsToastNonce: showToast
+            ? state.tradeWsToastNonce + 1
+            : state.tradeWsToastNonce,
+      ),
+    );
+
+    if (result.needsRefetch && event.event.tradeId != null) {
+      unawaited(_refreshTradeInFeed(event.event.tradeId!, emit));
+      return;
+    }
+  }
+
+  Future<void> _onWsReconnected(
+    HomeWsReconnected event,
+    Emitter<HomeState> emit,
+  ) async {
+    if (state.status != HomeStatus.success) return;
+    await _loadInitial(emit, includeProfile: false);
+  }
+
+  void _onClearTradeWsFeedback(
+    HomeClearTradeWsFeedback event,
+    Emitter<HomeState> emit,
+  ) {
+    emit(state.copyWith(clearTradeWsToast: true));
   }
 
   Future<void> _onNotificationsOpened(
@@ -356,6 +506,8 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     HomeTradeToggleSaved event,
     Emitter<HomeState> emit,
   ) async {
+    if (state.savingTradeId != null) return;
+
     final wasSaved = state.savedTradeIds.contains(event.tradeId);
 
     // Optimistic update — flip UI immediately.
@@ -455,6 +607,10 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     _pricesSub = null;
     await _notifSub?.cancel();
     _notifSub = null;
+    await _tradeWsSub?.cancel();
+    _tradeWsSub = null;
+    await _wsReconnectSub?.cancel();
+    _wsReconnectSub = null;
     _repository.invalidateSubscriptions();
     await _livePrices.resetSession();
     _webSocket.disconnect();
@@ -489,7 +645,9 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       if (price == null && t.symbol.contains(' / ')) {
         price = prices[t.symbol.split(' / ').first.trim()];
       }
-      return price == null ? t : t.copyWith(ltp: price);
+      if (price == null) return t;
+      // Always write the incoming tick so UI refreshes immediately.
+      return t.copyWith(ltp: price);
     }).toList();
   }
 
@@ -508,6 +666,8 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
   Future<void> close() {
     _pricesSub?.cancel();
     _notifSub?.cancel();
+    _tradeWsSub?.cancel();
+    _wsReconnectSub?.cancel();
     return super.close();
   }
 }
@@ -578,18 +738,27 @@ List<TradingCardData> _applyLocalFilters(
     final matchesQuery = q.isEmpty ||
         trade.symbol.toLowerCase().contains(q) ||
         (trade.companyName?.toLowerCase().contains(q) ?? false) ||
+        (trade.analystName?.toLowerCase().contains(q) ?? false) ||
         card.symbol.toLowerCase().contains(q) ||
-        (card.company?.toLowerCase().contains(q) ?? false);
+        (card.company?.toLowerCase().contains(q) ?? false) ||
+        (card.analystName?.toLowerCase().contains(q) ?? false);
 
-    // Within a group: OR. Across groups: AND.
-    final matchesSegment =
-        segmentApi.isEmpty || _tradeMatchesSegments(trade, segmentApi);
-    final matchesCategory =
-        categoryApi.isEmpty || _tradeMatchesCategories(trade, categoryApi);
-    final matchesStatus =
-        statusApi.isEmpty || _tradeMatchesStatuses(trade, statusApi);
+    // Within a group and across groups: OR.
+    // Equity + Intraday → all Equity trades and all Intraday trades.
+    final facetHits = <bool>[];
+    if (segmentApi.isNotEmpty) {
+      facetHits.add(_tradeMatchesSegments(trade, segmentApi));
+    }
+    if (categoryApi.isNotEmpty) {
+      facetHits.add(_tradeMatchesCategories(trade, categoryApi));
+    }
+    if (statusApi.isNotEmpty) {
+      facetHits.add(_tradeMatchesStatuses(trade, statusApi));
+    }
+    final matchesFacets =
+        facetHits.isEmpty || facetHits.any((matched) => matched);
 
-    if (matchesQuery && matchesSegment && matchesCategory && matchesStatus) {
+    if (matchesQuery && matchesFacets) {
       filtered.add(card);
     }
   }

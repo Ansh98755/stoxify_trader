@@ -149,7 +149,7 @@ class ShimmerTradeList extends StatelessWidget {
             crossAxisCount: columns,
             mainAxisSpacing: 12,
             crossAxisSpacing: 12,
-            mainAxisExtent: 230,
+            mainAxisExtent: 235,
           ),
           itemCount: columns * 2,
           itemBuilder: (context, index) => const ShimmerTradeCard(),

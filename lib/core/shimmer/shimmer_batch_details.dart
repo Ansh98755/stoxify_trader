@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../constants/color_constants.dart';
 import '../utils/app_size.dart';
+import '../utils/responsive_layout.dart';
 import 'shimmer.dart';
+import 'shimmer_trade_card.dart';
 
 /// Full-page skeleton for BatchDetailsPage loading state.
 class ShimmerBatchDetails extends StatelessWidget {
@@ -10,6 +12,7 @@ class ShimmerBatchDetails extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final columns = ResponsiveLayout.cardGridColumns(context);
     return ShimmerScope(
       child: ListView(
         physics: const NeverScrollableScrollPhysics(),
@@ -21,9 +24,27 @@ class ShimmerBatchDetails extends StatelessWidget {
           SizedBox(height: AppSize.h(context, 22)),
           _sectionHeading(context),
           SizedBox(height: AppSize.h(context, 12)),
-          _tradeCardSkeleton(context),
-          SizedBox(height: AppSize.h(context, 14)),
-          _tradeCardSkeleton(context),
+          if (columns > 1)
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: columns,
+                mainAxisSpacing: 12,
+                crossAxisSpacing: 12,
+                mainAxisExtent: columns >= 3 ? 235 : 300,
+              ),
+              itemCount: columns * 2,
+              itemBuilder: (_, __) => const Align(
+                alignment: Alignment.topCenter,
+                child: ShimmerTradeCard(),
+              ),
+            )
+          else ...<Widget>[
+            const ShimmerTradeCard(),
+            SizedBox(height: AppSize.h(context, 14)),
+            const ShimmerTradeCard(),
+          ],
           SizedBox(height: AppSize.h(context, 22)),
           _sectionHeading(context),
           SizedBox(height: AppSize.h(context, 12)),
@@ -37,33 +58,37 @@ class ShimmerBatchDetails extends StatelessWidget {
 
   Widget _headerCard(BuildContext context) {
     return Container(
-      padding: AppSize.insets(context, left: 18, right: 18, top: 20, bottom: 18),
+      padding: AppSize.insets(context, left: 12, right: 12, top: 12, bottom: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFF1A5CC8),
-        borderRadius: BorderRadius.circular(AppSize.r(context, 22)),
+        color: ColorConstants.white,
+        borderRadius: BorderRadius.circular(AppSize.r(context, 14)),
+        border: Border.all(color: ColorConstants.line),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          ShimmerBox(width: AppSize.w(context, 180), height: AppSize.h(context, 22), borderRadius: 6),
-          SizedBox(height: AppSize.h(context, 18)),
+          ShimmerBox(width: AppSize.w(context, 180), height: AppSize.h(context, 16), borderRadius: 6),
+          SizedBox(height: AppSize.h(context, 10)),
           Container(
-            padding: AppSize.insets(context, left: 12, right: 12, top: 12, bottom: 12),
+            padding: EdgeInsets.symmetric(
+              horizontal: AppSize.w(context, 8),
+              vertical: AppSize.h(context, 6),
+            ),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.11),
-              borderRadius: BorderRadius.circular(AppSize.r(context, 16)),
+              color: ColorConstants.pageBackground,
+              borderRadius: BorderRadius.circular(AppSize.r(context, 10)),
             ),
             child: Row(children: <Widget>[
-              ShimmerBox(width: AppSize.r(context, 48), height: AppSize.r(context, 48), borderRadius: 14),
-              SizedBox(width: AppSize.w(context, 12)),
+              ShimmerBox(width: AppSize.r(context, 32), height: AppSize.r(context, 32), borderRadius: 10),
+              SizedBox(width: AppSize.w(context, 8)),
               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
-                ShimmerBox(width: AppSize.w(context, 80), height: AppSize.h(context, 10), borderRadius: 4),
-                SizedBox(height: AppSize.h(context, 6)),
-                ShimmerBox(width: AppSize.w(context, 130), height: AppSize.h(context, 13), borderRadius: 4),
+                ShimmerBox(width: AppSize.w(context, 70), height: AppSize.h(context, 9), borderRadius: 4),
+                SizedBox(height: AppSize.h(context, 4)),
+                ShimmerBox(width: AppSize.w(context, 110), height: AppSize.h(context, 12), borderRadius: 4),
               ])),
             ]),
           ),
-          SizedBox(height: AppSize.h(context, 14)),
+          SizedBox(height: AppSize.h(context, 10)),
           Row(children: <Widget>[
             ShimmerBox(width: AppSize.w(context, 52), height: AppSize.h(context, 22), borderRadius: 20),
             SizedBox(width: AppSize.w(context, 8)),
@@ -98,32 +123,6 @@ class ShimmerBatchDetails extends StatelessWidget {
       SizedBox(width: AppSize.w(context, 10)),
       ShimmerBox(width: AppSize.w(context, 130), height: AppSize.h(context, 16), borderRadius: 5),
     ]);
-  }
-
-  Widget _tradeCardSkeleton(BuildContext context) {
-    return Container(
-      padding: AppSize.insets(context, left: 12, right: 12, top: 12, bottom: 12),
-      decoration: BoxDecoration(
-        color: ColorConstants.white,
-        borderRadius: BorderRadius.circular(AppSize.r(context, 14)),
-        border: Border.all(color: ColorConstants.line),
-      ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
-        Row(children: <Widget>[
-          ShimmerBox(width: AppSize.r(context, 36), height: AppSize.r(context, 36), isCircle: true),
-          SizedBox(width: AppSize.w(context, 10)),
-          Expanded(child: ShimmerBox(width: double.infinity, height: AppSize.h(context, 13), borderRadius: 5)),
-          SizedBox(width: AppSize.w(context, 16)),
-          ShimmerBox(width: AppSize.w(context, 60), height: AppSize.h(context, 13), borderRadius: 5),
-        ]),
-        SizedBox(height: AppSize.h(context, 10)),
-        ShimmerBox(width: double.infinity, height: AppSize.h(context, 26), borderRadius: 6),
-        SizedBox(height: AppSize.h(context, 8)),
-        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: List<Widget>.generate(
-          3, (_) => ShimmerBox(width: AppSize.w(context, 70), height: AppSize.h(context, 10), borderRadius: 4),
-        )),
-      ]),
-    );
   }
 
   Widget _tierSkeleton(BuildContext context) {

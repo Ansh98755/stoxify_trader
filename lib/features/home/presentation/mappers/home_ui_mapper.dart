@@ -46,12 +46,19 @@ String _changeLine(HomeTrade trade) {
   return '$sign${_money(delta, precise: true)} (${_signedPct(pct)})';
 }
 
+String? _exitAtLabel(DateTime? at) {
+  if (at == null) return null;
+  return DateFormat('dd MMM yyyy · hh:mm a').format(at);
+}
+
 /// Maps API [HomeTrade] → UI [TradingCardData] for [CommonTradingCard].
 TradingCardData mapHomeTradeToCard(
   HomeTrade trade, {
   Set<String> savedIds = const <String>{},
   VoidCallback? onSaveTap,
+  bool isSaving = false,
 }) {
+  final bool live = trade.state.isLive;
   return TradingCardData(
     symbol: trade.symbol,
     tradeId: trade.id,
@@ -61,11 +68,18 @@ TradingCardData mapHomeTradeToCard(
     company: trade.companyName,
     batchName: trade.batchName,
     showLongSignal: true,
-    currentPrice: trade.ltp != null
-        ? _money(trade.ltp!, precise: true)
-        : _money(trade.entry, precise: true),
-    change: _changeLine(trade),
+    currentPrice: live
+        ? (trade.ltp != null
+            ? _money(trade.ltp!, precise: true)
+            : _money(trade.entry, precise: true))
+        : null,
+    change: live ? _changeLine(trade) : null,
     tradeStatus: trade.statusLabel,
+    isLive: live,
+    exitPrice: !live && trade.exitPrice != null
+        ? _money(trade.exitPrice!, precise: true)
+        : null,
+    exitAt: !live ? _exitAtLabel(trade.exitTimestamp) : null,
     entry: _money(trade.entry, precise: true),
     analystName: trade.analystName,
     logoUrl: trade.logoUrl,
@@ -77,6 +91,7 @@ TradingCardData mapHomeTradeToCard(
     asset: trade.segmentLabel,
     rationale: trade.rationale,
     isSaved: savedIds.contains(trade.id),
+    isSaving: isSaving,
     onSaveTap: onSaveTap,
   );
 }
@@ -166,6 +181,23 @@ String? joinFilterValues(Set<String> values) {
       .toList();
   if (cleaned.isEmpty) return null;
   return cleaned.join(',');
+}
+
+/// Feed facet query params for OR semantics across groups.
+///
+/// Within a group, values are comma-joined (server OR). When more than one
+/// group is active (e.g. Equity + Intraday), omit both from the request so the
+/// API does not AND them — the client then ORs locally.
+({String? segment, String? category}) resolveOrAwareFeedFacets({
+  required Set<String> segments,
+  required Set<String> categories,
+}) {
+  final segment = joinFilterValues(segments);
+  final category = joinFilterValues(categories);
+  if (segment != null && category != null) {
+    return (segment: null, category: null);
+  }
+  return (segment: segment, category: category);
 }
 
 /// Default home status when none selected — live recommendations only.

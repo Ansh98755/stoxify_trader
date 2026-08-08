@@ -8,6 +8,8 @@ import '../../../../app/routes/app_routing_name.dart';
 import '../../../../core/constants/color_constants.dart';
 import '../../../../core/constants/text_style_constants.dart';
 import '../../../../core/di/injection.dart';
+import '../../../../core/network/websocket_service.dart';
+import '../../../../core/network/ws_trade_event.dart';
 import '../../../../core/services/live_prices_service.dart';
 import '../../../../core/utils/app_size.dart';
 import '../../../../core/widgets/app_chrome.dart';
@@ -18,6 +20,7 @@ import '../../../../core/widgets/sebi_verified_pill.dart';
 import '../../../../core/widgets/tapered_divider.dart';
 import '../../../../core/widgets/trade_signal_timeline.dart';
 import '../../../../core/widgets/trade_symbol_avatar.dart';
+import '../../../home/data/ws_trade_merge.dart';
 import '../../../home/domain/entities/home_trade.dart';
 import '../../../home/domain/repositories/home_repository.dart';
 
@@ -45,11 +48,30 @@ String _riskRewardRatio(HomeTrade? trade) {
 }
 
 String _modificationFieldLabel(String field) {
-  return field
-      .split('_')
-      .where((part) => part.isNotEmpty)
-      .map((part) => '${part[0].toUpperCase()}${part.substring(1)}')
-      .join(' ');
+  switch (field.toLowerCase()) {
+    case 'sl':
+    case 'stop_loss':
+      return 'Stop loss';
+    case 'targets':
+      return 'Targets';
+    default:
+      return field
+          .split('_')
+          .where((part) => part.isNotEmpty)
+          .map((part) => '${part[0].toUpperCase()}${part.substring(1)}')
+          .join(' ');
+  }
+}
+
+bool _usesModificationComparison(String field) {
+  switch (field.toLowerCase()) {
+    case 'targets':
+    case 'sl':
+    case 'stop_loss':
+      return true;
+    default:
+      return false;
+  }
 }
 
 /// Prefer the trade's analyst display name over raw IDs (e.g. ANALYST_…).
@@ -135,6 +157,7 @@ class TradeDetailsPage extends StatefulWidget {
 
 class _TradeDetailsPageState extends State<TradeDetailsPage> {
   StreamSubscription<Map<String, double>>? _pricesSubscription;
+  StreamSubscription<WsTradeEvent>? _tradeWsSubscription;
   late HomeTrade? _trade;
   bool _isLoadingDetails = false;
 
@@ -155,6 +178,9 @@ class _TradeDetailsPageState extends State<TradeDetailsPage> {
     livePrices.trackAdditional(<String>[widget.trade?.symbol ?? '']);
     _applyLivePrices(livePrices.current);
     _pricesSubscription = livePrices.pricesStream.listen(_applyLivePrices);
+    _tradeWsSubscription =
+        getIt<WebSocketService>().tradeEvents.listen(_onWsTradeEvent);
+    unawaited(getIt<WebSocketService>().connect());
     _loadTradeDetails();
   }
 
@@ -207,9 +233,45 @@ class _TradeDetailsPageState extends State<TradeDetailsPage> {
     setState(() => _trade = trade.copyWith(ltp: price));
   }
 
+  void _onWsTradeEvent(WsTradeEvent event) {
+    final tradeId = _resolvedTradeId;
+    if (tradeId == null || event.tradeId != tradeId) return;
+    final current = _trade;
+    if (current == null && event.kind != WsTradeEventKind.created) {
+      return;
+    }
+
+    switch (event.kind) {
+      case WsTradeEventKind.modified:
+        if (current == null) {
+          unawaited(_loadTradeDetails());
+          return;
+        }
+        final patched = WsTradeMerge.applyModified(current, event.payload);
+        if (patched.sl == current.sl &&
+            patched.t1 == current.t1 &&
+            patched.t2 == current.t2 &&
+            patched.t3 == current.t3) {
+          unawaited(_loadTradeDetails());
+          return;
+        }
+        setState(() => _trade = patched);
+      case WsTradeEventKind.closed:
+        if (current == null) return;
+        setState(
+          () => _trade = WsTradeMerge.applyClosed(current, event.payload),
+        );
+      case WsTradeEventKind.created:
+        break;
+      case WsTradeEventKind.unknown:
+        break;
+    }
+  }
+
   @override
   void dispose() {
     _pricesSubscription?.cancel();
+    _tradeWsSubscription?.cancel();
     super.dispose();
   }
 
@@ -220,8 +282,13 @@ class _TradeDetailsPageState extends State<TradeDetailsPage> {
     // Fallback values when no trade passed
     final symbol = t?.symbol ?? '—';
     final company = t?.companyName ?? t?.symbol ?? '—';
+    final isClosed = t != null && !t.state.isLive;
 
-    final currentPrice = t?.ltp ?? t?.entry ?? 0;
+    final currentPrice = isClosed
+        ? (t?.exitPrice ?? t?.ltp ?? t?.entry ?? 0)
+        : (t?.ltp ?? t?.entry ?? 0);
+    final exitPriceStr =
+        t?.exitPrice != null ? _money(t!.exitPrice!) : '—';
     final pnl = t == null
         ? null
         : t.state == HomeTradeState.live
@@ -248,12 +315,9 @@ class _TradeDetailsPageState extends State<TradeDetailsPage> {
     final isLoss = statusLabel.toLowerCase().contains('loss') ||
         statusLabel.toLowerCase().contains('sl');
     final statusColor = isLoss ? ColorConstants.red : ColorConstants.green;
-    final isClosed = t != null && !t.state.isLive;
-    final useLossBackground = isLoss ||
-        (pnl != null && pnl < 0) ||
-        (isClosed &&
-            t?.state != HomeTradeState.allTargetsHit &&
-            (pnl == null || pnl <= 0));
+    final useLossBackground = isClosed ||
+        isLoss ||
+        (pnl != null && pnl < 0);
     final useProfitBackground = !useLossBackground &&
         ((pnl != null && pnl > 0) ||
             t?.state == HomeTradeState.allTargetsHit);
@@ -272,11 +336,16 @@ class _TradeDetailsPageState extends State<TradeDetailsPage> {
     final analystAvatarUrl = t?.analystAvatarUrl;
     final analystWinRate = t?.analystWinRate;
     final entryDateTime = _formatDate(t?.entryTimestamp ?? t?.nseTimestamp);
-    final nseTimestamp = t?.nseTimestamp != null
-        ? DateFormat("yyyy-MM-dd'T'HH:mm:ssxxx").format(t!.nseTimestamp)
-        : '—';
+    final exitDateTime = _formatDate(t?.exitTimestamp);
+    final nseTimestamp = _formatDate(t?.nseTimestamp);
     final rationale = t?.rationale;
     final modifications = t?.modifications ?? <TradeModification>[];
+    final DateTime? lastModifiedRaw = modifications.isNotEmpty
+        ? modifications
+            .map((m) => m.modifiedAt)
+            .reduce((a, b) => a.isAfter(b) ? a : b)
+        : (t?.exitTimestamp ?? t?.entryTimestamp);
+    final lastModifiedDateTime = _formatDate(lastModifiedRaw);
     final allTargets = t?.targets ?? <TradeTarget>[];
 
     return Scaffold(
@@ -396,17 +465,19 @@ class _TradeDetailsPageState extends State<TradeDetailsPage> {
                                 ],
                               ),
                               SizedBox(height: AppSize.h(context, 16)),
-                              TradeSignalTimeline(
-                                timestamp: _formatDate(
-                                    t?.entryTimestamp ?? t?.nseTimestamp),
-                                entry: entryStr,
-                                stopLoss: slStr,
-                                target: _money(t?.finalTarget ?? 0),
-                                currentPrice: _money(currentPrice),
-                              ),
-                              const TaperedHorizontalDivider(
-                                verticalPadding: 12,
-                              ),
+                              if (!isClosed) ...<Widget>[
+                                TradeSignalTimeline(
+                                  timestamp: _formatDate(
+                                      t?.entryTimestamp ?? t?.nseTimestamp),
+                                  entry: entryStr,
+                                  stopLoss: slStr,
+                                  target: _money(t?.finalTarget ?? 0),
+                                  currentPrice: _money(currentPrice),
+                                ),
+                                const TaperedHorizontalDivider(
+                                  verticalPadding: 12,
+                                ),
+                              ],
                               Row(
                                 children: <Widget>[
                                   Expanded(
@@ -472,17 +543,29 @@ class _TradeDetailsPageState extends State<TradeDetailsPage> {
                                 children: <Widget>[
                                   Expanded(
                                     child: _LabeledValue(
-                                      label: 'Estimated gains',
-                                      value: estimatedGain,
-                                      valueColor: ColorConstants.green,
+                                      label: isClosed
+                                          ? 'Final returns'
+                                          : 'Estimated gains',
+                                      value: isClosed
+                                          ? pnlText
+                                          : estimatedGain,
+                                      valueColor: isClosed
+                                          ? changeColor
+                                          : ColorConstants.green,
                                     ),
                                   ),
                                   const TaperedVerticalDivider(height: 44),
                                   Expanded(
                                     child: _LabeledValue(
-                                      label: 'Live return',
-                                      value: pnlText,
-                                      valueColor: changeColor,
+                                      label: isClosed
+                                          ? 'Exit price'
+                                          : 'Live return',
+                                      value: isClosed
+                                          ? exitPriceStr
+                                          : pnlText,
+                                      valueColor: isClosed
+                                          ? ColorConstants.ink
+                                          : changeColor,
                                       alignEnd: true,
                                     ),
                                   ),
@@ -516,6 +599,27 @@ class _TradeDetailsPageState extends State<TradeDetailsPage> {
                                 label: 'Entry date & time',
                                 value: entryDateTime,
                               ),
+                              if (isClosed) ...<Widget>[
+                                const TaperedHorizontalDivider(
+                                    verticalPadding: 10),
+                                _DetailRow(
+                                  label: 'Exit date & time',
+                                  value: exitDateTime,
+                                ),
+                                const TaperedHorizontalDivider(
+                                    verticalPadding: 10),
+                                _DetailRow(
+                                  label: 'Exit price',
+                                  value: exitPriceStr,
+                                  valueColor: ColorConstants.ink,
+                                ),
+                                const TaperedHorizontalDivider(
+                                    verticalPadding: 10),
+                                _DetailRow(
+                                  label: 'Last modified',
+                                  value: lastModifiedDateTime,
+                                ),
+                              ],
                               const TaperedHorizontalDivider(
                                   verticalPadding: 10),
                               _DetailRow(
@@ -523,16 +627,17 @@ class _TradeDetailsPageState extends State<TradeDetailsPage> {
                                 value: statusLabel,
                                 valueColor: statusColor,
                               ),
-                              const TaperedHorizontalDivider(
-                                  verticalPadding: 10),
-                              _DetailRow(
-                                  label: 'Batch', value: batchName),
+                              if (!isClosed) ...<Widget>[
+                                const TaperedHorizontalDivider(
+                                    verticalPadding: 10),
+                                _DetailRow(
+                                    label: 'Batch', value: batchName),
+                              ],
                               const TaperedHorizontalDivider(
                                   verticalPadding: 10),
                               _DetailRow(
                                 label: 'NSE timestamp',
                                 value: nseTimestamp,
-                                valueMono: true,
                               ),
                               if (rationale != null &&
                                   rationale.isNotEmpty) ...<Widget>[
@@ -616,14 +721,31 @@ class _TradeDetailsPageState extends State<TradeDetailsPage> {
                                       value: _formatDate(t!.entryTimestamp),
                                     ),
                                   ],
+                                  if (t?.exitTimestamp != null) ...<Widget>[
+                                    const TaperedHorizontalDivider(
+                                      verticalPadding: 10,
+                                    ),
+                                    _DetailRow(
+                                      label: 'Exit date & time',
+                                      value: _formatDate(t!.exitTimestamp),
+                                    ),
+                                  ],
+                                  if (lastModifiedRaw != null) ...<Widget>[
+                                    const TaperedHorizontalDivider(
+                                      verticalPadding: 10,
+                                    ),
+                                    _DetailRow(
+                                      label: 'Last modified',
+                                      value: lastModifiedDateTime,
+                                    ),
+                                  ],
                                   if (t != null) ...<Widget>[
                                     const TaperedHorizontalDivider(
                                       verticalPadding: 10,
                                     ),
                                     _DetailRow(
                                       label: 'NSE timestamp',
-                                      value: t.nseTimestamp
-                                          .toIso8601String(),
+                                      value: _formatDate(t.nseTimestamp),
                                     ),
                                   ],
                                 ],
@@ -673,17 +795,17 @@ class _TradeDetailsPageState extends State<TradeDetailsPage> {
                                       field,
                                       change?['new'],
                                     );
-                                    final formattedChange =
-                                        field.toLowerCase() == 'targets'
-                                            ? 'Before\n$formattedOld\n\n'
-                                                'After\n$formattedNew'
-                                            : '$formattedOld → $formattedNew';
+                                    final bool useComparisonUi =
+                                        _usesModificationComparison(field);
                                     return Column(
                                       children: <Widget>[
                                         const TaperedHorizontalDivider(
                                             verticalPadding: 10),
-                                        if (field.toLowerCase() == 'targets')
-                                          _TargetsModificationComparison(
+                                        if (useComparisonUi)
+                                          _FieldModificationComparison(
+                                            label: _modificationFieldLabel(
+                                              field,
+                                            ),
                                             before: formattedOld,
                                             after: formattedNew,
                                           )
@@ -691,7 +813,8 @@ class _TradeDetailsPageState extends State<TradeDetailsPage> {
                                           _DetailRow(
                                             label:
                                                 _modificationFieldLabel(field),
-                                            value: formattedChange,
+                                            value:
+                                                '$formattedOld → $formattedNew',
                                           ),
                                       ],
                                     );
@@ -903,7 +1026,9 @@ class _TradeSaveButtonState extends State<_TradeSaveButton> {
         ),
       ),
       child: InkWell(
-        onTap: _isLoading || widget.tradeId == null ? null : _toggleSaved,
+        onTap: _isLoading || _isUpdating || widget.tradeId == null
+            ? null
+            : _toggleSaved,
         borderRadius: BorderRadius.circular(AppSize.r(context, 12)),
         child: SizedBox(
           width: AppSize.r(context, 40),
@@ -1239,12 +1364,14 @@ class _LabeledValue extends StatelessWidget {
   }
 }
 
-class _TargetsModificationComparison extends StatelessWidget {
-  const _TargetsModificationComparison({
+class _FieldModificationComparison extends StatelessWidget {
+  const _FieldModificationComparison({
+    required this.label,
     required this.before,
     required this.after,
   });
 
+  final String label;
   final String before;
   final String after;
 
@@ -1254,7 +1381,7 @@ class _TargetsModificationComparison extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         Text(
-          'Targets',
+          label,
           style: TextStyleConstants.caption.copyWith(
             fontSize: AppSize.sp(context, 12),
             color: ColorConstants.mute,
@@ -1265,7 +1392,7 @@ class _TargetsModificationComparison extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
             Expanded(
-              child: _TargetChangeColumn(
+              child: _ModificationChangeColumn(
                 title: 'Before',
                 value: before,
                 background: ColorConstants.gray50,
@@ -1284,7 +1411,7 @@ class _TargetsModificationComparison extends StatelessWidget {
               ),
             ),
             Expanded(
-              child: _TargetChangeColumn(
+              child: _ModificationChangeColumn(
                 title: 'After',
                 value: after,
                 background:
@@ -1299,8 +1426,8 @@ class _TargetsModificationComparison extends StatelessWidget {
   }
 }
 
-class _TargetChangeColumn extends StatelessWidget {
-  const _TargetChangeColumn({
+class _ModificationChangeColumn extends StatelessWidget {
+  const _ModificationChangeColumn({
     required this.title,
     required this.value,
     required this.background,
